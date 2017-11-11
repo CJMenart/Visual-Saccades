@@ -18,6 +18,7 @@ COORD_RES = 25 #COORD_RES + PATCH_SIZE <= smallest image dimension in dataset. N
 COORD_LAYER_SIZES = [250,500] #size of hidden layers used to select coordinates
 ANS_LAYER_SIZES = [250,500,1000] #size of layers used to give answer
 NEPS = 500
+NUM_CLASSES = 1000
 #import some sentence encoder
 
 #constructs a network, inception-style again, such that we can implement RL however we wish b/c it manually
@@ -63,6 +64,8 @@ def QLSTM(img,sentence_encoding,nSteps,vggWeightFile):
 	h = tf.zeros([1,STATE_SIZE])
 	#unroll the cells
 	coordSelectors = []	
+	hiddenStates = []
+	Qtrainers = []
 	for step in range(NSTEP):
 		hidden = tf.concat((VQAInputs[step],h),1)
 		forget = tf.nn.sigmoid(tf.nn.bias_add(tf.matmul(hidden,Wforget),Bforget))
@@ -73,11 +76,14 @@ def QLSTM(img,sentence_encoding,nSteps,vggWeightFile):
 		outputGate = tf.nn.sigmoid(tf.nn.bias_add(tf.matmul(hidden,Woutput),Boutput))
 		h = outputGate*tf.nn.tanh(C)
 		#x,y coordinate defined as a function of h
-		cFeat = h
+		hiddenStates.append(h)
+		cFeat = tf.stop_gradient(h)
 		for lay in range(len(COORD_LAYER_SIZES)):
 			cFeat = tf.nn.leaky_relu(tf.nn.bias_add(tf.matmul(cFeat,coordWeights[lay]),coordBiases[lay]))
 		coordSelectors.append(tf.nn.bias_add(tf.matmul(cFeat,coordWeights[-1]),coordBiases[-1]))
-	
+		Qtarg = tf.placeholder(tf.float32,[None,COORD_RES*COORD_RES])
+		Qtrainers.append((Qtarg,tf.losses.softmax_cross_entropy(coordSelectors[-1],Qtarg)))
+		
 	#if you change to variable episode length, move this into loop
 	#network for giving answer
 	aFeat = h
@@ -87,33 +93,40 @@ def QLSTM(img,sentence_encoding,nSteps,vggWeightFile):
 			cIn = STATE_SIZE
 		else:
 			cIn = ANS_LAYER_SIZES[lay-1]
-		aWeights = tf.get_variable('ansW%d' % lay),shape=[cIn,sz],initializer=tf.truncated_normal_initializer(stddev=np.sqrt(2/cIn))
+		aWeights = tf.get_variable('ansW%d' % lay,shape=[cIn,sz],initializer=tf.truncated_normal_initializer(stddev=np.sqrt(2/cIn))
 		aBiases = tf.get_variable('ansB%d' % lay,shape[sz],initializer=tf.constant_initializer(0.01))
 		feat = tf.nn.bias_add(tf.matmul(aFeat,aWeights),aBiases)
 		aFeat = tf.nn.leaky_relu(feat)
-	answer = feat
+	aWeights = tf.get_variable('ansW%d' % lay+1,shape=[cIn,sz],initializer=tf.truncated_normal_initializer(stddev=np.sqrt(2/cIn))
+	aBiases = tf.get_variable('ansB%d' % lay+1,shape[sz],initializer=tf.constant_initializer(0.01))
+	answer = tf.nn.bias_add(tf.matmul(aFeat,aWeights),aBiases)
 	
-	return (patches,coordSelectors,answer)
+	target = tf.placeholder(tf.float32,[None,NUM_CLASSES)
+	loss = tf.losses.softmax_cross_entropy(answer,target)
 	
-#incrementally roll image through the network, also generate 'episodes' for Q-learning?
+	return (patches,coordSelectors,answer,target,answerLoss,Qtrainers)
+	
+#incrementally roll image through the network, can be used to train or to generate 'episodes' for Q-learning?
 #TODO: Probaly need to add sentence here to add to feed_dict
-def forward_pass(image,img,patches,coordSelectors,answer,sess,train):
+def forward_pass(image,img,patches,coordSelectors,hiddenStates,answer,sess,train):
 	nSteps = len(patches)
 	sz = image.shape
 	avlSz = image.shape - PATCH_SIZE
-	h = sess.partial_run_setup(coordSelectors+[answer],[img]+patches)
+	h = sess.partial_run_setup(coordSelectors+hiddenStates+[answer],[img]+patches)
 	#default for now, first patch is middle of network
 	x = int(COORD_RES/2)
 	y = x
 	coordVals = []
+	hiddenVals = []
 	for step in range(nSteps);
 		#select patch
 		xAc = avlSz[1]*y/(COORD_RES-1)
 		yAc = avlSz[0]*x/(COORD_RES-1)
 		inPatch = img[yAc:yAc+PATCH_SIZE,xAc:xAc+PATCH_SIZE,:]
 		#run
-		coords = sess.partial_run(h,coordSelectors[step],feed_dict={patches[step]:inPatch}) #TODO: Add sentence rep?
+		coords,h = sess.partial_run(h,[coordSelectors[step],hiddenStates[ste]],feed_dict={patches[step]:inPatch}) #TODO: Add sentence rep?
 		coordVals.append(coords)
+		hiddenVals.append(h)
 		#turn coords into x,y
 		c = np.argmax(coords)
 		y = np.floor(c/COORD_RES)
@@ -124,19 +137,29 @@ def forward_pass(image,img,patches,coordSelectors,answer,sess,train):
 	if train:
 		sess.partial_run(h,train)
 	
-	return (ans,coordVals)
+	return (ans,coordVals,hiddenVals)
 		
-def collectQEps(image,img,patches,coordSelectors,answer,sess):
+def collectQEps(image,img,patches,coordSelectors,answer,sess,hiddenStates):
 	episodes = []
 	
-	#oh wait needs hidden state as Q-in...blargh
 	for run in range(NEPS):
-		ans,coordVals = forward_pass(image,img,patches,coordSelectors,answer,sess,None)
+		ans,coordVals,hiddenVals = forward_pass(image,img,patches,coordSelectors,answer,sess,None)
 		for ep in range(len(coordVals)):
-			
+			#NOTE: Will base case have trouble b/c decision has no effect?
+			if ep == len(coordVals)-1:
+				loss = sess.run(answerLoss,feed_dict={hiddenStates[ep]:hiddenVals[ep]}) #will this broadcast automatically? Likely source of error
+				episode = (hiddenVals[ep],loss)
+			else:
+				loss = sess.run(coordSelectors[ep+1],feed_dict={hiddenStates[ep+1]:hiddenVals[ep+1]})
+				episode = (hiddenVals[ep],loss)
 		episodes.append(episode)
 	
 	shuffle(episodes)
+	return episodes
 
 #collect eps, then train for a bit
-def QTrain():
+def QTrain(image,img,patches,coordSelectors,answer,sess,hiddenStates,Qtrainers):
+	episodes = collectQEps(image,img,patches,coordSelectors,answer,sess,hiddenStates)
+	for ep in len(episodes):
+		episode = episodes[ep]
+		sess.run(Qtrainers[0],feed_dict={hiddenStates[0]:episodes[ep][0],goodCoords:episodes[ep][1]})
