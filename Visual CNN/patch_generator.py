@@ -119,6 +119,7 @@ def deconv_net_patch(input_code, i):
                   + str(out3.get_shape().as_list()))
             
         return out3
+		
 with tf.name_scope('extract_patches'):
     patches = tf.extract_image_patches(input_img, ksizes = [1] + patch_size + [3], 
                                      strides = [1, 16, 16, 1], 

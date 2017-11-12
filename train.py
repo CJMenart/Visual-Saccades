@@ -64,7 +64,7 @@ def main():
 	
 	model = vis_lstm_model.Vis_lstm_model(model_options)
 	input_tensors, t_loss, t_accuracy, t_p = model.build_model()
-	train_op = tf.train.AdamOptimizer(args.learning_rate).minimize(t_loss)
+	train_op = tf.train.AdamOptimizer(args.learning_rate,epsilon=1e-5).minimize(t_loss)
 	sess = tf.InteractiveSession()
 	tf.initialize_all_variables().run()
 
