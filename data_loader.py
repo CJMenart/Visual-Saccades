@@ -6,8 +6,9 @@ import numpy as np
 import pprint
 import pickle
 
-def prepare_training_data(version = 2, data_dir = 'Data'):
+def prepare_training_data(q_dir, ann_dir, version = 2):
 	if version == 1:
+		#unused
 		t_q_json_file = join(data_dir, 'MultipleChoice_mscoco_train2014_questions.json')
 		t_a_json_file = join(data_dir, 'mscoco_train2014_annotations.json')
 
@@ -16,13 +17,13 @@ def prepare_training_data(version = 2, data_dir = 'Data'):
 		qa_data_file = join(data_dir, 'qa_data_file1.pkl')
 		vocab_file = join(data_dir, 'vocab_file1.pkl')
 	else:
-		t_q_json_file = join(data_dir, 'v2_OpenEnded_mscoco_train2014_questions.json')
-		t_a_json_file = join(data_dir, 'v2_mscoco_train2014_annotations.json')
+		t_q_json_file = join(q_dir, 'v2_OpenEnded_mscoco_train2014_questions.json')
+		t_a_json_file = join(ann_dir, 'v2_mscoco_train2014_annotations.json')
 
-		v_q_json_file = join(data_dir, 'v2_OpenEnded_mscoco_val2014_questions.json')
-		v_a_json_file = join(data_dir, 'v2_mscoco_val2014_annotations.json')
-		qa_data_file = join(data_dir, 'qa_data_file2.pkl')
-		vocab_file = join(data_dir, 'vocab_file2.pkl')
+		v_q_json_file = join(q_dir, 'v2_OpenEnded_mscoco_val2014_questions.json')
+		v_a_json_file = join(ann_dir, 'v2_mscoco_val2014_annotations.json')
+		qa_data_file = join('~/', 'qa_data_file2.pkl')
+		vocab_file = join('~/', 'vocab_file2.pkl')
 
 	# IF ALREADY EXTRACTED
 	# qa_data_file = join(data_dir, 'qa_data_file{}.pkl'.format(version))
@@ -99,6 +100,7 @@ def prepare_training_data(version = 2, data_dir = 'Data'):
 		'max_question_length' : max_question_length
 	}
 
+	'''
 	print "Saving qa_data"
 	with open(qa_data_file, 'wb') as f:
 		pickle.dump(data, f)
@@ -110,7 +112,8 @@ def prepare_training_data(version = 2, data_dir = 'Data'):
 			'max_question_length' : data['max_question_length']
 		}
 		pickle.dump(vocab_data, f)
-
+	'''
+	
 	return data
 	
 def load_questions_answers(version = 2, data_dir = 'Data'):
