@@ -19,9 +19,10 @@ class QuestionEmbeddingNet:
         if is_bnorm:
             self.batch_norm = BatchNorm()
         for i in range(self.num_lstm_layer):
-            self.LSTMs.append(tf.nn.rnn_cell.LSTMCell(self.lstm_layer_size, use_peepholes = self.use_peepholes))
+            self.LSTMs.append(tf.nn.rnn_cell.LSTMCell(self.lstm_layer_size, forget_bias = 1.0, 
+                                                      use_peepholes = self.use_peepholes))
      
-    def __call__(self, ques_inp, vocab_size, word_embed_size, max_ques_length, batch_size, 
+    def __call__(self, ques_inp, ques_len_inp, vocab_size, word_embed_size, max_ques_length, batch_size, 
                  is_train = True, keep_prob = 0.5,
                  scope = 'ques_embed'):
         if is_train:
@@ -41,7 +42,17 @@ class QuestionEmbeddingNet:
             print('ques_embed_W', self.ques_embed_W.get_shape().as_list(),  self.ques_embed_W.dtype)
                 
             states = self.stacked_LSTM.zero_state(batch_size, tf.float32)
-                
+            inputs = []
+            for i in range(max_ques_length):
+                inputs.append(tf.nn.embedding_lookup(self.ques_embed_W, ques_inp[:, i]))
+            lstm_inputs = tf.stack(inputs, axis = 1)
+            outputs, states = tf.nn.dynamic_rnn(cell=self.stacked_LSTM,
+                                             inputs=lstm_inputs,
+                                             sequence_length=ques_len_inp,
+                                             initial_state=states,
+                                             parallel_iterations=32,
+                                             swap_memory=False)
+            '''
             for i in range(max_ques_length):
                 inputs = tf.nn.embedding_lookup(self.ques_embed_W, ques_inp[:,i])
                 inputs = tf.tanh(inputs)
@@ -51,6 +62,8 @@ class QuestionEmbeddingNet:
                 output, states = self.stacked_LSTM(inputs, states)
                 if i == 0:
                     tf.get_variable_scope().reuse_variables()
+            '''
+            print(outputs[:, i, :].get_shape().as_list())
             concat_list = []
             for i in range(self.num_lstm_layer):
                 concat_list.append(states[i].c)
@@ -73,7 +86,8 @@ class PatchGenerator:
         if is_bnorm:
             self.batch_norm = BatchNorm()
         for i in range(self.num_lstm_layers):
-            self.LSTMs.append(tf.nn.rnn_cell.LSTMCell(self.lstm_layer_size, use_peepholes = self.use_peepholes))
+            self.LSTMs.append(tf.nn.rnn_cell.LSTMCell(self.lstm_layer_size, forget_bias = 1.0, 
+                                                      use_peepholes = self.use_peepholes))
             
     def __call__(self, input_img, is_train = True):
         with tf.name_scope('extract_patches'):
@@ -100,7 +114,7 @@ class PatchGenerator:
                         tf.get_variable_scope().reuse_variables()
                     output, states = self.stacked_LSTM(inputs, states)
                     output_patch = self.deconv_net(output, i, is_training = is_train)
-                    difference = output_patch - patches
+                    difference = tf.abs(output_patch - patches)
                     if i == 0:
                         loss = tf.reduce_min(tf.reduce_mean(difference, [1, 2, 3, 4]))
                     else:

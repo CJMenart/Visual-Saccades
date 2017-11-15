@@ -98,7 +98,7 @@ def tokenize(sentence):
 def save_image_stats(images_train_path, img_shape = [256, 256, 3]):
     print('{} Computing mean and std of training images {}'.format(temp, temp))
     start = timeit.default_timer()
-    N = 500#len(images_train_path)
+    N = len(images_train_path)
     sum_stats = np.zeros(img_shape)
     sum_2_stats = np.zeros(img_shape)
     count = 0
@@ -183,16 +183,11 @@ print(temp)
 ques_tokens_train = get_tokens(questions_train)
 ques_tokens_val = get_tokens(questions_val)
 counts = {}
-count_thr = 0
-for i, tokens in enumerate(ques_tokens_val):#change to train
+count_thr = 5
+for i, tokens in enumerate(ques_tokens_train):#change to train
     for token in tokens:
         counts[token] = counts.get(token, 0) + 1
 
-counts = {}
-count_thr = 0
-for i, tokens in enumerate(ques_tokens_val):#change to train
-    for token in tokens:
-        counts[token] = counts.get(token, 0) + 1
 cw = sorted([(count,w) for w,count in counts.iteritems()], reverse=True)
 print('top words and their counts:')
 print('\n'.join(map(str,cw[:20])))
@@ -207,8 +202,6 @@ print('number of words in vocab would be %d' % (len(vocab), ))
 print('number of UNKs: %d/%d = %.2f%%' % (bad_count, total_words, bad_count*100.0/total_words))
 print('inserting the special UNK token')
 vocab.append('UNK')
-
-
 
 vocab_file = 'data/preprocessed/vocab_list.txt'.format(count_thr)
 with open(vocab_file, 'w') as f:
@@ -235,6 +228,7 @@ print(temp)
 print('{} Creating labels for training answers {}'.format('*'*10, '*'*10))
 print('Number of training answers ==> {}'.format(len(answers_train)))
 print('A sample training answer ==> {}'.format(answers_train[5]))
+
 labelencoder = preprocessing.LabelEncoder()
 labelencoder.fit(answers_train)
 nb_classes = len(list(labelencoder.classes_))
@@ -244,9 +238,10 @@ joblib.dump(labelencoder,'data/labelencoder.pkl')
 print('{} Done creating labels for training answers {}'.format('*'*10, '*'*10))
 print('')
 
+save_image_stats(images_train_path)
 img_shape = [256, 256, 3]
 print('{} Writing tfrecord file for validation data {}'.format(temp, temp))
-N = 100#len(images_val_path)
+N = len(images_val_path)
 out_filepath = 'data/val_data.tfrecords'
 if os.path.exists(out_filepath):
     os.unlink(out_filepath)
@@ -278,7 +273,7 @@ print('{} Done writing tfrecord file for validation data. Time = {:.2f} s. {}'.f
 print('')
 
 print('{} Writing tfrecord file for training data {}'.format(temp, temp))
-N = 500#len(images_train_path)
+N = len(images_train_path)
 out_filepath = 'data/train_data.tfrecords'
 if os.path.exists(out_filepath):
     os.unlink(out_filepath)

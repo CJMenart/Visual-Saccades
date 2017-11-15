@@ -91,6 +91,7 @@ class LSTM_DNN(Model):
         if idx == 0:
             self.img = []
             self.ques = []
+            self.ques_len = []
             self.ans = []
             self.ques_embed = []
             self.img_feat = []
@@ -122,14 +123,15 @@ class LSTM_DNN(Model):
         data = batch_data(self.train_data, args.batch_size)
         self.img.append(data[0])
         self.ques.append(data[1])
-        self.ans.append(data[2])
+        self.ques_len.append(data[2])
+        self.ans.append(data[3])
         print('img shape ==> {}'.format(self.img[0]))
         print('ques shape ==> {}'.format(self.ques[0]))
         print('ans shape ==> {}'.format(self.ans[0]))
      
         if idx == 0:
             with tf.name_scope('Test_Model'):
-                self.ques_embed_test = self.ques_embed_net(self.ques[idx], 
+                self.ques_embed_test = self.ques_embed_net(self.ques[idx], self.ques_len[idx],  
                                                       self.vocab_size, 
                                                       self.word_embed_size,
                                                       self.max_ques_length, 
@@ -149,7 +151,7 @@ class LSTM_DNN(Model):
             print(tf.get_variable_scope())
         with tf.name_scope('Train_Model'):
             print(tf.get_variable_scope())
-            ques_embed = self.ques_embed_net(self.ques[idx], 
+            ques_embed = self.ques_embed_net(self.ques[idx],self.ques_len[idx], 
                                                       self.vocab_size, 
                                                       self.word_embed_size,
                                                       self.max_ques_length, 
@@ -211,6 +213,12 @@ class LSTM_DNN(Model):
             self.loss_summ = []
             for idx, loss in enumerate(self.loss):
                 self.loss_summ.append(scalar_summary('device' + str(idx) + '/loss_summ', loss))
+            self.ce_loss_summ = []
+            for idx, loss in enumerate(self.ce_loss):
+                self.ce_loss_summ.append(scalar_summary('device' + str(idx) + '/ce_loss_summ', loss)) 
+            self.patch_loss_summ = []
+            for idx, loss in enumerate(self.patch_loss):
+                self.patch_loss_summ.append(scalar_summary('device' + str(idx) + '/patch_loss_summ', loss))
                 
             self.vars_summ = []
             if self.is_vars_summ:
@@ -222,7 +230,7 @@ class LSTM_DNN(Model):
                     self.grads_summ.append(histogram_summary(var.name.replace(':','_') + '/gradients', grad))
             self.val_accuracy_summ = scalar_summary('val_accuracy',  self.val_accuracy)
             summ_lst = self.vars_summ + self.grads_summ + \
-            self.loss_summ 
+            self.loss_summ + self.ce_loss_summ + self.patch_loss_summ
             if self.combine_feature.is_bnorm:       
                 self.pop_mean_summ = []
                 self.pop_var_summ = []
@@ -365,6 +373,7 @@ class LSTM_DNN(Model):
             fdict = {}
             fdict[self.img[0]] = val_img
             fdict[self.ques[0]] = val_ques
+            fdict[self.ques_len[0]] = val_ques_len
             if is_train:
                 y_proba = self.sess.run(self.out_proba_train, feed_dict = fdict)
             else:
