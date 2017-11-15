@@ -109,13 +109,13 @@ class LSTM_DNN(Model):
                
             with tf.name_scope('val_pipe'):
                 self.val_data = read_val_data('data/val_data.tfrecords', 
-                                        ['img', 'ques', 'ques_len'], 
-                                        [(256, 256, 3), (self.max_ques_length, ), ()], 
-                                        [tf.float32, tf.int32, tf.int32])
-                self.val_answers = read_and_decode_val_answers('data/val_answers_all.csv')
+                                        ['img', 'ques', 'ques_len', 'ans_all'], 
+                                        [(256, 256, 3), (self.max_ques_length, ), (), ()], 
+                                        [tf.float32, tf.int32, tf.int32, tf.string])
+                
                 
             with tf.name_scope('batch_val_data'):
-                self.val_batch = tf.train.batch(self.val_data + [self.val_answers], batch_size = args.batch_size, 
+                self.val_batch = tf.train.batch(self.val_data, batch_size = args.batch_size, 
                                         num_threads = 1,
                                         capacity=1000 + 3 * args.batch_size,
                                         allow_smaller_final_batch=False)
@@ -294,10 +294,14 @@ class LSTM_DNN(Model):
         curr_epoch = 0
         batch_timings = []
         losses = []
+        loss =0.
         try:
             while not coord.should_stop():
                 start = timeit.default_timer()
-                loss = 0.
+                #answers = sess.run(self.val_batch[3])
+                #print(answers)
+                #print('ashutosh')
+                
                 if batch_idx >= num_train_batches:
                         
                     mean_losses = np.mean(losses, 0)
@@ -363,7 +367,17 @@ class LSTM_DNN(Model):
         print('{} Evaluating model on validation data {}'.format(temp, temp))
         
         start = timeit.default_timer()
-        y_predict_text = []
+        correct_val = 0.0
+        total = 0.
+        binary_temp_count = 0
+        num_temp_count = 0
+        other_count = 0
+        binary_correct_val = 0.0
+        binary_total = 0.1
+        num_correct_val = 0.0
+        num_total = 0.1
+        other_correct_val = 0.0
+        other_total = 0.1
         for i in range(self.num_val_batches):
             val_batch = self.sess.run(self.val_batch)
             val_img = val_batch[0]
@@ -379,62 +393,54 @@ class LSTM_DNN(Model):
             else:
                 y_proba = self.sess.run(self.out_proba_test, feed_dict = fdict)
             y_predict = y_proba.argmax(axis = -1)
-            y_predict_text.extend(self.labelencoder.inverse_transform(y_predict))
+            y_predict_text = self.labelencoder.inverse_transform(y_predict)
             print('{}/{} (epoch = {})'.format(i+1, self.num_val_batches, curr_epoch))
        
 
-        correct_val = 0.0
-        total = 0.
-        binary_correct_val = 0.0
-        binary_total = 0.1
-        num_correct_val = 0.0
-        num_total = 0.1
-        other_correct_val = 0.0
-        other_total = 0.1
-        #f1 = open(self.results_path, 'w')
-        for prediction, truth, question, image in zip(y_predict_text, val_answers, val_ques, val_img):
-         
-            temp_count=0
-            for _truth in truth:
-                if prediction == _truth:
-                    temp_count+=1
-            if temp_count>2:
-                correct_val+=1
-            else:
-                correct_val+=float(temp_count)/3
+            
+            #f1 = open(self.results_path, 'w')
+            
+            for prediction, truth, question, image in zip(y_predict_text, val_answers, val_ques, val_img):
 
-            total += 1
+                temp_count=0
+                for _truth in truth.split('|'):
+                    if prediction == _truth:
+                        temp_count+=1
+                if temp_count>2:
+                    correct_val+=1
+                else:
+                    correct_val+=float(temp_count)/3
 
-            binary_temp_count = 0
-            num_temp_count = 0
-            other_count = 0
-            if prediction == 'yes' or prediction == 'no':
-                for _truth in truth:
-                    if prediction == _truth:
-                        binary_temp_count+=1
-                if binary_temp_count>2:
-                    binary_correct_val+=1
+                total += 1
+
+                
+                if prediction == 'yes' or prediction == 'no':
+                    for _truth in truth.split('|'):
+                        if prediction == _truth:
+                            binary_temp_count+=1
+                    if binary_temp_count>2:
+                        binary_correct_val+=1
+                    else:
+                        binary_correct_val+= float(binary_temp_count)/3
+                    binary_total+=1
+                elif np.core.defchararray.isdigit(prediction):
+                    for _truth in truth.split('|'):
+                        if prediction == _truth:
+                            num_temp_count+=1
+                    if num_temp_count>2:
+                        num_correct_val+=1
+                    else:
+                        num_correct_val+= float(num_temp_count)/3
+                    num_total+=1
                 else:
-                    binary_correct_val+= float(binary_temp_count)/3
-                binary_total+=1
-            elif np.core.defchararray.isdigit(prediction):
-                for _truth in truth:
-                    if prediction == _truth:
-                        num_temp_count+=1
-                if num_temp_count>2:
-                    num_correct_val+=1
-                else:
-                    num_correct_val+= float(num_temp_count)/3
-                num_total+=1
-            else:
-                for _truth in truth:
-                    if prediction == _truth:
-                        other_count += 1
-                if other_count > 2:
-                    other_correct_val += 1
-                else:
-                    other_correct_val += float(other_count) / 3
-                other_total += 1
+                    for _truth in truth.split('|'):
+                        if prediction == _truth:
+                            other_count += 1
+                    if other_count > 2:
+                        other_correct_val += 1
+                    else:
+                        other_correct_val += float(other_count) / 3
+                    other_total += 1
 
             #f1.write(question.encode('utf-8'))
             #f1.write('\n')

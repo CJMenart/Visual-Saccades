@@ -34,7 +34,6 @@ def read_data(filepath, name_list, shape_list, dtype_list):
         features = tf.parse_single_example(serialized_example, features = dict1)
         outputs = []
         for i in range(len(name_list)):
-            print(i)
             temp = tf.decode_raw(features[name_list[i]], dtype_list[i])
             temp = tf.reshape(temp, shape_list[i])
             outputs.append(temp)
@@ -45,15 +44,16 @@ def read_val_data(filepath, name_list, shape_list, dtype_list):
         reader = tf.TFRecordReader()
         _, serialized_example = reader.read(filename_queue)
         dict1={}
-        for i in range(len(name_list)):
+        for i in range(4):
             dict1[name_list[i]] = tf.FixedLenFeature([], tf.string)
         features = tf.parse_single_example(serialized_example, features = dict1)
         outputs = []
-        for i in range(len(name_list)):
-            print(i)
+        for i in range(3):
             temp = tf.decode_raw(features[name_list[i]], dtype_list[i])
             temp = tf.reshape(temp, shape_list[i])
             outputs.append(temp)
+        temp = features[name_list[3]]
+        outputs.append(temp)
         return outputs 
 def batch_data(data, batch_size):
     with tf.name_scope('batch_and_shuffle_data'):

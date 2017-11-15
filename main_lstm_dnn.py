@@ -3,6 +3,7 @@ from tensorflow.python.client import device_lib
 import tensorflow as tf
 import argparse
 from LSTM_DNN import LSTM_DNN
+import sys
 LR = 0.0002
 BATCH_SIZE = 10
 EPOCH = 300
@@ -108,7 +109,6 @@ print(udevices)
 config = tf.ConfigProto()
 config.gpu_options.allow_growth = True
 config.allow_soft_placement=True
-
 tf.reset_default_graph()
 with tf.Session(config=config) as sess:
     if args.is_train:

@@ -26,6 +26,23 @@ def write_tfrecords(out_file, var_list, name_list):
     example = tf.train.Example(features = tf.train.Features(feature = dict1))
     out_file.write(example.SerializeToString())
     
+def write_tfrecords_val(out_file, var_list, name_list):
+    dict1 = {}
+    for i in range(3):
+        dict1[name_list[i]] = _bytes_feature(var_list[i].tostring())
+    dict1[name_list[3]] = _bytes_feature(var_list[3])
+    example = tf.train.Example(features = tf.train.Features(feature = dict1))
+    out_file.write(example.SerializeToString())
+'''
+def write_tfrecords_val(out_file, var_list, name_list):
+    dict1 = {}
+    dict1[name_list[0]] = _bytes_feature(var_list[0].tostring())
+    dict1[name_list[1]] = _bytes_feature(var_list[1].tostring())
+    dict1[name_list[2]] = _bytes_feature(var_list[2].tostring())
+    dict1[name_list[3]] = _bytes_feature(np.array(var_list[3]).tostring())
+    example = tf.train.Example(features = tf.train.Features(feature = dict1))
+    out_file.write(example.SerializeToString())
+'''
 def selectFrequentAnswers(questions_train, questions_lengths_train, answers_train, 
                           images_train, images_train_path,  
                           answers_train_all, max_answers):
@@ -246,8 +263,6 @@ out_filepath = 'data/val_data.tfrecords'
 if os.path.exists(out_filepath):
     os.unlink(out_filepath)
 out_file = tf.python_io.TFRecordWriter(out_filepath)
-out_csv_path = 'data/val_answers_all.csv'
-out_csv = open(out_csv_path,'w')
 start = timeit.default_timer()
 for i in range(N):
     img_path = os.path.join('data', images_val_path[i])
@@ -261,13 +276,11 @@ for i in range(N):
     ques = ques.astype(np.int32)
     ques_len = questions_lengths_val[i]
     ques_len = np.array(int(ques_len)).astype(np.int32)
-    ans_all = answers_val_all[i]
-    out_csv.write((ans_all + '\n').encode('utf8'))
-    write_tfrecords(out_file, [img, ques, ques_len], ['img', 'ques', 'ques_len'])
+    ans_all = str(answers_val_all[i])
+    write_tfrecords_val(out_file, [img, ques, ques_len, ans_all], ['img', 'ques', 'ques_len', 'ans_all'])
     print('{}/{} written.'.format(i+1, N), end = '\r')
     sys.stdout.flush()
 out_file.close()  
-out_csv.close()
 end = timeit.default_timer()
 print('{} Done writing tfrecord file for validation data. Time = {:.2f} s. {}'.format(temp, end - start, temp))
 print('')
