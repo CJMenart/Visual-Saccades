@@ -149,11 +149,17 @@ class LSTM_DNN(Model):
                                                       keep_prob = 1)
                 self.ques_embed_W = self.ques_embed_net.ques_embed_W
                 
-                self.img_feat_test = self.patch_generator(self.img[idx], is_train = False)[0]
-                self.final_img_feat_test, self.final_ques_feat_test, \
-                self.out_logit_test = self.combine_feature(self.img_feat_test, self.ques_embed_test, 
+                self.img_feat_test = self.patch_generator(self.img[idx],
+                                                          self.ques_embed_test,
+                                                          is_train = False)[0]
+                #self.final_img_feat_test, self.final_ques_feat_test, \
+                self.final_img_feat_test, \
+                self.out_logit_test = self.combine_feature(self.img_feat_test, 
                                                            is_train = False, 
                                                            keep_prob = 1)
+                #self.out_logit_test = self.combine_feature(self.img_feat_test, self.ques_embed_test, 
+                #                                           is_train = False, 
+                #                                           keep_prob = 1)
                 self.out_proba_test = tf.nn.softmax(self.out_logit_test)
                 self.val_accuracy = tf.placeholder(dtype = tf.float32, shape = ())
             tf.get_variable_scope().reuse_variables()
@@ -167,9 +173,9 @@ class LSTM_DNN(Model):
                                                       self.batch_size, 
                                                       is_train = True, 
                                                       keep_prob = self.lstm_keep_prob)
-            img_feat, patch_loss = self.patch_generator(self.img[idx], is_train = True)
-            final_img_feat, final_ques_feat, \
-            out_logit = self.combine_feature(img_feat, ques_embed, 
+            img_feat, patch_loss = self.patch_generator(self.img[idx], ques_embed, is_train = True)
+            final_img_feat, \
+            out_logit = self.combine_feature(img_feat, 
                                               is_train = True, 
                                               keep_prob = self.hidden_keep_prob)
          
@@ -177,7 +183,7 @@ class LSTM_DNN(Model):
             self.img_feat.append(img_feat)
             self.patch_loss.append(patch_loss)
             self.final_img_feat.append(final_img_feat)
-            self.final_ques_feat.append(final_ques_feat)
+            #self.final_ques_feat.append(final_ques_feat)
             self.out_logit.append(out_logit)
             if idx == 0:
                 self.out_proba_train = tf.nn.softmax(self.out_logit[0])
