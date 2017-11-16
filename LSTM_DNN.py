@@ -109,8 +109,8 @@ class LSTM_DNN(Model):
                
             with tf.name_scope('val_pipe'):
                 self.val_data = read_val_data('data/val_data.tfrecords', 
-                                        ['img', 'ques', 'ques_len', 'ans_all'], 
-                                        [(256, 256, 3), (self.max_ques_length, ), (), ()], 
+                                        ['img', 'ques', 'ques_len', 'ans_all', 'ques_str'], 
+                                        [(256, 256, 3), (self.max_ques_length, ), (), (), ()], 
                                         [tf.float32, tf.int32, tf.int32, tf.string])
                 
                 
@@ -369,8 +369,7 @@ class LSTM_DNN(Model):
         start = timeit.default_timer()
         correct_val = 0.0
         total = 0.
-        binary_temp_count = 0
-        num_temp_count = 0
+       
         other_count = 0
         binary_correct_val = 0.0
         binary_total = 0.1
@@ -378,12 +377,14 @@ class LSTM_DNN(Model):
         num_total = 0.1
         other_correct_val = 0.0
         other_total = 0.1
+        f1 = open('data/predicted_answers.txt', 'w')
         for i in range(self.num_val_batches):
             val_batch = self.sess.run(self.val_batch)
             val_img = val_batch[0]
             val_ques = val_batch[1]
             val_ques_len = val_batch[2]
             val_answers = val_batch[3]
+            val_ques_str = val_batch[4]
             fdict = {}
             fdict[self.img[0]] = val_img
             fdict[self.ques[0]] = val_ques
@@ -398,9 +399,9 @@ class LSTM_DNN(Model):
        
 
             
-            #f1 = open(self.results_path, 'w')
             
-            for prediction, truth, question, image in zip(y_predict_text, val_answers, val_ques, val_img):
+            
+            for prediction, truth, ques_str, in zip(y_predict_text, val_answers, val_ques_str):
 
                 temp_count=0
                 for _truth in truth.split('|'):
@@ -415,6 +416,7 @@ class LSTM_DNN(Model):
 
                 
                 if prediction == 'yes' or prediction == 'no':
+                    binary_temp_count = 0
                     for _truth in truth.split('|'):
                         if prediction == _truth:
                             binary_temp_count+=1
@@ -424,6 +426,7 @@ class LSTM_DNN(Model):
                         binary_correct_val+= float(binary_temp_count)/3
                     binary_total+=1
                 elif np.core.defchararray.isdigit(prediction):
+                    num_temp_count = 0
                     for _truth in truth.split('|'):
                         if prediction == _truth:
                             num_temp_count+=1
@@ -433,6 +436,7 @@ class LSTM_DNN(Model):
                         num_correct_val+= float(num_temp_count)/3
                     num_total+=1
                 else:
+                    other_count = 0
                     for _truth in truth.split('|'):
                         if prediction == _truth:
                             other_count += 1
@@ -442,24 +446,22 @@ class LSTM_DNN(Model):
                         other_correct_val += float(other_count) / 3
                     other_total += 1
 
-            #f1.write(question.encode('utf-8'))
-            #f1.write('\n')
-            #f1.write(image.encode('utf-8'))
-            #f1.write('\n')
-            #f1.write(prediction)
-            #f1.write('\n')
-            #f1.write(truth.encode('utf-8'))
-            #f1.write('\n')
-            #f1.write('\n')
-
-        #f1.write('Final Accuracy is ' + str(correct_val/total))
-        #f1.close()
-        #f2 = open('overall_results.txt', 'a')
-        #f2.write(str(correct_val/total) + '\n\n')
-        #f2.write(str(binary_correct_val / binary_total) + '\n\n')
-        #f2.write(str(num_correct_val / num_total) + '\n\n')
-        #f2.write(str(other_correct_val / other_total) + '\n\n')
-        #f2.close()
+                f1.write('Question ==> {} \n'.format(ques_str).encode('utf-8'))
+                f1.write('Prediction ==> {} \n'.format(prediction).encode('utf-8'))
+                f1.write('Answer ==> {} \n'.format(truth))
+                f1.write(('*'*100 + '\n').encode('utf8'))
+        f1.close()
+        f2 = open('data/overall_results.txt', 'a')
+        f2.write('Total Accuracy: {:.4f} \n\n'.format(correct_val/float(total)))
+       
+        f2.write('Accuracy on Yes No questions: {:.4f} \n\n'.format(binary_correct_val / float(binary_total)))
+       
+        f2.write('Accuracy on Number type question: {:.4f} \n\n'.format(num_correct_val / float(num_total)))
+    
+        f2.write('Accuracy on Other type question: {:.4f} \n\n'.format(other_correct_val / float(other_total)))
+        f2.write(('*'*100 + '\n').encode('utf8'))
+       
+        f2.close()
         accy = correct_val/float(total)
         print('')
         print('Final Accuracy is {:.4f}'.format(accy))

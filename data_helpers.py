@@ -44,7 +44,7 @@ def read_val_data(filepath, name_list, shape_list, dtype_list):
         reader = tf.TFRecordReader()
         _, serialized_example = reader.read(filename_queue)
         dict1={}
-        for i in range(4):
+        for i in range(len(name_list)):
             dict1[name_list[i]] = tf.FixedLenFeature([], tf.string)
         features = tf.parse_single_example(serialized_example, features = dict1)
         outputs = []
@@ -53,6 +53,8 @@ def read_val_data(filepath, name_list, shape_list, dtype_list):
             temp = tf.reshape(temp, shape_list[i])
             outputs.append(temp)
         temp = features[name_list[3]]
+        outputs.append(temp)
+        temp = features[name_list[4]]
         outputs.append(temp)
         return outputs 
 def batch_data(data, batch_size):
@@ -63,16 +65,7 @@ def batch_data(data, batch_size):
                                         min_after_dequeue = 1000,
                                         name='in_and_out')
         return output
-def read_and_decode_val_answers(filename):
-    filename_queue = tf.train.string_input_producer([filename],
-                                                    num_epochs=None, shuffle=False)
-    reader = tf.TextLineReader(skip_header_lines=0)
-    _, csv_row = reader.read(filename_queue)
-    record_defaults = [['']] * 10
-    answers = tf.decode_csv(csv_row, record_defaults=record_defaults, 
-                            field_delim='|', 
-                            use_quote_delim=False)
-    return answers
+    
 def right_align(seq,lengths):
     v = np.zeros(np.shape(seq))
     N = np.shape(seq)[1]

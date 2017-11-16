@@ -31,6 +31,7 @@ def write_tfrecords_val(out_file, var_list, name_list):
     for i in range(3):
         dict1[name_list[i]] = _bytes_feature(var_list[i].tostring())
     dict1[name_list[3]] = _bytes_feature(var_list[3])
+    dict1[name_list[4]] = _bytes_feature(var_list[4])
     example = tf.train.Example(features = tf.train.Features(feature = dict1))
     out_file.write(example.SerializeToString())
 '''
@@ -112,34 +113,6 @@ def final_tokens(tokens_list, counts, count_thr):
 def tokenize(sentence):
     return [i for i in re.split(r"([-.\"',:? !\$#@~()*&\^%;\[\]/\\\+<>\n=])", sentence) if i!='' and i!=' ' and i!='\n'];
 
-def save_image_stats(images_train_path, img_shape = [256, 256, 3]):
-    print('{} Computing mean and std of training images {}'.format(temp, temp))
-    start = timeit.default_timer()
-    N = len(images_train_path)
-    sum_stats = np.zeros(img_shape)
-    sum_2_stats = np.zeros(img_shape)
-    count = 0
-    for i in range(N):
-        img_path = os.path.join('data', images_train_path[i])
-        img = imageio.imread(img_path)
-        if len(img.shape) != 3:
-            print('Skipped for image number {}. Image shape ==> {}'.format(i+1, img.shape))
-            continue
-        img = resize(img, img_shape[:2], order=3)
-        img = img.astype(np.float32)
-        sum_stats += img
-        sum_2_stats += img*img
-        count += 1
-        print('{}/{}'.format(i+1, N), end = '\r')
-        sys.stdout.flush()
-    img_mean = sum_stats / float(count)
-    img_std = np.sqrt((sum_2_stats / float(count)) - (img_mean ** 2))
-    train_stats_path = 'data/train_stats.npz'
-    np.savez(train_stats_path, img_mean = img_mean, img_std = img_std)
-    end = timeit.default_timer()
-    print('{} Done computing mean and variance of training images. Time = {:.2f} s.{}'\
-          .format(temp, end - start, temp))
-    print('')
 temp = '*'*10    
 print(temp)
 imdir='%s/COCO_%s_%012d.jpg'
@@ -255,7 +228,6 @@ joblib.dump(labelencoder,'data/labelencoder.pkl')
 print('{} Done creating labels for training answers {}'.format('*'*10, '*'*10))
 print('')
 
-save_image_stats(images_train_path)
 img_shape = [256, 256, 3]
 print('{} Writing tfrecord file for validation data {}'.format(temp, temp))
 N = len(images_val_path)
@@ -264,7 +236,7 @@ if os.path.exists(out_filepath):
     os.unlink(out_filepath)
 out_file = tf.python_io.TFRecordWriter(out_filepath)
 start = timeit.default_timer()
-for i in range(N):
+for i in range(24677, N):
     img_path = os.path.join('data', images_val_path[i])
     img = imageio.imread(img_path)
     if len(img.shape) < 3:
@@ -276,8 +248,10 @@ for i in range(N):
     ques = ques.astype(np.int32)
     ques_len = questions_lengths_val[i]
     ques_len = np.array(int(ques_len)).astype(np.int32)
-    ans_all = str(answers_val_all[i])
-    write_tfrecords_val(out_file, [img, ques, ques_len, ans_all], ['img', 'ques', 'ques_len', 'ans_all'])
+    ans_all = answers_val_all[i].encode('utf8')
+    ques_str = questions_val[i].encode('utf8')
+    write_tfrecords_val(out_file, [img, ques, ques_len, ans_all, ques_str], 
+                        ['img', 'ques', 'ques_len', 'ans_all', 'ques_str'])
     print('{}/{} written.'.format(i+1, N), end = '\r')
     sys.stdout.flush()
 out_file.close()  
@@ -292,6 +266,9 @@ if os.path.exists(out_filepath):
     os.unlink(out_filepath)
 out_file = tf.python_io.TFRecordWriter(out_filepath)
 start = timeit.default_timer()
+sum_stats = np.zeros(img_shape)
+sum_2_stats = np.zeros(img_shape)
+count = 0
 for i in range(N):
     img_path = os.path.join('data', images_train_path[i])
     img = imageio.imread(img_path)
@@ -300,6 +277,9 @@ for i in range(N):
         continue
     img = resize(img, img_shape[:2], order = 3)
     img = img.astype(np.float32)
+    sum_stats += img
+    sum_2_stats += img*img
+    count += 1
     ques = ques_array_train[i]
     ques = ques.astype(np.int32)
     ques_len = questions_lengths_train[i]
@@ -309,6 +289,10 @@ for i in range(N):
     write_tfrecords(out_file, [img, ques, ques_len, ans], ['img', 'ques', 'ques_len', 'ans'])
     print('{}/{} written.'.format(i+1, N), end = '\r')
     sys.stdout.flush()
+img_mean = sum_stats / float(count)
+img_std = np.sqrt((sum_2_stats / float(count)) - (img_mean ** 2))
+train_stats_path = 'data/train_stats.npz'
+np.savez(train_stats_path, img_mean = img_mean, img_std = img_std)
 out_file.close()    
 end = timeit.default_timer()
 print('{} Done writing tfrecord file for Training data. Time = {:.2f} s. {}'.format(temp, end - start, temp))
