@@ -83,6 +83,7 @@ class PatchGenerator:
         self.LSTMs = []
         self.num_lstm_unroll = 10
         self.use_peepholes = use_peepholes
+        self.output_patch = []
         if is_bnorm:
             self.batch_norm = BatchNorm()
         for i in range(self.num_lstm_layers):
@@ -123,8 +124,8 @@ class PatchGenerator:
                         print('LSTM Input ==> ' + str(inputs.get_shape().as_list()))
                         print('LSTM Output ==> ' + str(output.get_shape().as_list()))
                         
-                self.output_patch = output_patch
-                img_feature = tf.reshape(self.output_patch, [self.batch_size, -1])
+                self.output_patch.append(output_patch)
+                img_feature = tf.reshape(output_patch, [self.batch_size, -1])
                 return img_feature, loss
             
     def deconv_net(self, input_code, i, is_training = True, name = 'deconvnet'):

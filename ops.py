@@ -94,3 +94,67 @@ def deconv(x, output_dim, output_shape, k=[5, 5], pool=[2, 2], name='downconv'):
         conv = tf.nn.bias_add(conv, b)
         return conv
     
+def _int64_feature(value):
+    return tf.train.Feature(int64_list=tf.train.Int64List(value=[value]))
+
+def _bytes_feature(value):
+    return tf.train.Feature(bytes_list=tf.train.BytesList(value=[value]))
+
+def write_tfrecords(out_file, var_list, name_list):
+    dict1 = {}
+    for i in range(len(var_list)):
+        dict1[name_list[i]] = _bytes_feature(var_list[i].tostring())
+    example = tf.train.Example(features = tf.train.Features(feature = dict1))
+    out_file.write(example.SerializeToString())
+    
+def write_tfrecords_val(out_file, var_list, name_list):
+    dict1 = {}
+    for i in range(3):
+        dict1[name_list[i]] = _bytes_feature(var_list[i].tostring())
+    dict1[name_list[3]] = _bytes_feature(var_list[3])
+    dict1[name_list[4]] = _bytes_feature(var_list[4])
+    example = tf.train.Example(features = tf.train.Features(feature = dict1))
+    out_file.write(example.SerializeToString())
+
+def read_data(filepath, name_list, shape_list, dtype_list):
+    with tf.name_scope('read_data'):
+        filename_queue = tf.train.string_input_producer([filepath])
+        reader = tf.TFRecordReader()
+        _, serialized_example = reader.read(filename_queue)
+        dict1={}
+        for i in range(len(name_list)):
+            dict1[name_list[i]] = tf.FixedLenFeature([], tf.string)
+        features = tf.parse_single_example(serialized_example, features = dict1)
+        outputs = []
+        for i in range(len(name_list)):
+            temp = tf.decode_raw(features[name_list[i]], dtype_list[i])
+            temp = tf.reshape(temp, shape_list[i])
+            outputs.append(temp)
+        return outputs
+def read_val_data(filepath, name_list, shape_list, dtype_list):
+    with tf.name_scope('read_data'):
+        filename_queue = tf.train.string_input_producer([filepath], shuffle=False)
+        reader = tf.TFRecordReader()
+        _, serialized_example = reader.read(filename_queue)
+        dict1={}
+        for i in range(len(name_list)):
+            dict1[name_list[i]] = tf.FixedLenFeature([], tf.string)
+        features = tf.parse_single_example(serialized_example, features = dict1)
+        outputs = []
+        for i in range(3):
+            temp = tf.decode_raw(features[name_list[i]], dtype_list[i])
+            temp = tf.reshape(temp, shape_list[i])
+            outputs.append(temp)
+        temp = features[name_list[3]]
+        outputs.append(temp)
+        temp = features[name_list[4]]
+        outputs.append(temp)
+        return outputs 
+def batch_data(data, batch_size):
+    with tf.name_scope('batch_and_shuffle_data'):
+        output = tf.train.shuffle_batch(data, batch_size = batch_size, 
+                                        num_threads = 2,
+                                        capacity=1000 + 3 * batch_size,
+                                        min_after_dequeue = 1000,
+                                        name='in_and_out')
+        return output

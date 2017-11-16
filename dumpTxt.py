@@ -1,33 +1,10 @@
 from __future__ import print_function
-import operator
 import argparse
-import progressbar
 import json
-import spacy
 import sys
 import re
-def tokenize(sentence):
-    return [i for i in re.split(r"([-.\"',:? !\$#@~()*&\^%;\[\]/\\\+<>\n=])", sentence) if i!='' and i!=' ' and i!='\n'];
+from helpers import tokenize, getModalAnswer, getAllAnswer
 
-def getModalAnswer(answers):
-    candidates = {}
-    for i in xrange(10):
-        ans = answers[i]['answer']
-        candidates[ans] = 1
-
-    for i in xrange(10):
-        ans = answers[i]['answer']
-        candidates[ans] = 1
-    return max(candidates.iteritems(), key=operator.itemgetter(1))[0]
-
-def getAllAnswer(answers):
-    answer_list = []
-    for i in xrange(10):
-        ans = answers[i]['answer']
-        ans = ans.replace('\"','')
-        answer_list.append(ans)
-
-    return '|'.join(answer_list)
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--split', type=str, default='train', 

@@ -5,11 +5,9 @@ import numpy as np
 import tensorflow as tf
 from ops import *
 from itertools import cycle
-from data_helpers import *
+from helpers import *
 from tensorflow.contrib.layers import fully_connected
-from model_helpers import *
 from networks import QuestionEmbeddingNet, ImagePlusQuesFeatureNet, FeedForwardNet,  PatchGenerator
-from progressbar import Bar, ETA, Percentage, ProgressBar
 import sys
 from sklearn.externals import joblib
 temp = '*'*10
@@ -39,6 +37,7 @@ class LSTM_DNN(Model):
         self.tfrecords_path = args.tfrecords_path
         self.train_data_path = 'data/train_data.tfrecords'
         self.val_data_path = 'data/val_data.tfrecords'
+        self.train_stats_path = 'data/train_stats.npz'
         self.labelencoder = joblib.load(args.lbl_enc_file)
         
         self.hidden_keep_prob = tf.Variable(args.hidden_keep_prob, dtype = tf.float32,
@@ -101,14 +100,18 @@ class LSTM_DNN(Model):
             self.loss = []
             self.patch_loss = []
             self.ce_loss = []
+            tr_stats = np.load(self.train_stats_path)
+            self.img_mean = tf.Variable(tr_stats['img_mean'].astype(np.float32), trainable = False)
+            self.img_std = tf.Variable(tr_stats['img_std'].astype(np.float32), trainable = False)
+            
             with tf.name_scope('train_pipe'):
-                self.train_data = read_data('data/train_data.tfrecords', 
+                self.train_data = read_data(self.train_data_path, 
                                         ['img', 'ques', 'ques_len', 'ans'], 
                                         [(256, 256, 3), (self.max_ques_length, ), (), ()], 
                                         [tf.float32, tf.int32, tf.int32, tf.int32])
                
             with tf.name_scope('val_pipe'):
-                self.val_data = read_val_data('data/val_data.tfrecords', 
+                self.val_data = read_val_data(self.val_data_path, 
                                         ['img', 'ques', 'ques_len', 'ans_all', 'ques_str'], 
                                         [(256, 256, 3), (self.max_ques_length, ), (), (), ()], 
                                         [tf.float32, tf.int32, tf.int32, tf.string])
@@ -119,9 +122,15 @@ class LSTM_DNN(Model):
                                         num_threads = 1,
                                         capacity=1000 + 3 * args.batch_size,
                                         allow_smaller_final_batch=False)
-            
+                val_img = self.val_batch[0]
+                self.val_img = tf.divide(tf.subtract(val_img, self.img_mean), self.img_std)
+                self.val_ques = self.val_batch[1]
+                self.val_ques_len = self.val_batch[2]
+                self.val_answers = self.val_batch[3]
+                self.val_ques_str = self.val_batch[4]
         data = batch_data(self.train_data, args.batch_size)
-        self.img.append(data[0])
+        img = (data[0] - self.img_mean) / self.img_std
+        self.img.append(img)
         self.ques.append(data[1])
         self.ques_len.append(data[2])
         self.ans.append(data[3])
@@ -219,7 +228,9 @@ class LSTM_DNN(Model):
             self.patch_loss_summ = []
             for idx, loss in enumerate(self.patch_loss):
                 self.patch_loss_summ.append(scalar_summary('device' + str(idx) + '/patch_loss_summ', loss))
-                
+            self.patch_summ = []  
+            for idx, patch in enumerate(self.patch_generator.output_patch[1:]):
+                self.patch_loss_summ.append(tf.summary.image('device' + str(idx) + '/patch_loss_summ', patch))
             self.vars_summ = []
             if self.is_vars_summ:
                 for var in self.vars:
@@ -230,7 +241,7 @@ class LSTM_DNN(Model):
                     self.grads_summ.append(histogram_summary(var.name.replace(':','_') + '/gradients', grad))
             self.val_accuracy_summ = scalar_summary('val_accuracy',  self.val_accuracy)
             summ_lst = self.vars_summ + self.grads_summ + \
-            self.loss_summ + self.ce_loss_summ + self.patch_loss_summ
+            self.loss_summ + self.ce_loss_summ + self.patch_loss_summ + self.patch_summ
             if self.combine_feature.is_bnorm:       
                 self.pop_mean_summ = []
                 self.pop_var_summ = []
@@ -379,12 +390,11 @@ class LSTM_DNN(Model):
         other_total = 0.1
         f1 = open('data/predicted_answers.txt', 'w')
         for i in range(self.num_val_batches):
-            val_batch = self.sess.run(self.val_batch)
-            val_img = val_batch[0]
-            val_ques = val_batch[1]
-            val_ques_len = val_batch[2]
-            val_answers = val_batch[3]
-            val_ques_str = val_batch[4]
+            
+            val_img, val_ques, val_ques_len, val_answers, val_ques_str = \
+            self.sess.run([self.val_img, self.val_ques, self.val_ques_len, 
+                      self.val_answers, self.val_ques_str])
+           
             fdict = {}
             fdict[self.img[0]] = val_img
             fdict[self.ques[0]] = val_ques

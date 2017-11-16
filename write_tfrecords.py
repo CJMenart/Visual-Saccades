@@ -1,117 +1,16 @@
 from __future__ import print_function
-from collections import defaultdict
 import numpy as np
-import scipy.io
-import sys
-import operator
 from sklearn.externals import joblib
 from sklearn import preprocessing
-from progressbar import Bar, ETA, Percentage, ProgressBar 
 import tensorflow as tf
 import os
 import imageio
 from skimage.transform import resize
 import re
 import timeit
-def _int64_feature(value):
-    return tf.train.Feature(int64_list=tf.train.Int64List(value=[value]))
-
-def _bytes_feature(value):
-    return tf.train.Feature(bytes_list=tf.train.BytesList(value=[value]))
-
-def write_tfrecords(out_file, var_list, name_list):
-    dict1 = {}
-    for i in range(len(var_list)):
-        dict1[name_list[i]] = _bytes_feature(var_list[i].tostring())
-    example = tf.train.Example(features = tf.train.Features(feature = dict1))
-    out_file.write(example.SerializeToString())
-    
-def write_tfrecords_val(out_file, var_list, name_list):
-    dict1 = {}
-    for i in range(3):
-        dict1[name_list[i]] = _bytes_feature(var_list[i].tostring())
-    dict1[name_list[3]] = _bytes_feature(var_list[3])
-    dict1[name_list[4]] = _bytes_feature(var_list[4])
-    example = tf.train.Example(features = tf.train.Features(feature = dict1))
-    out_file.write(example.SerializeToString())
-'''
-def write_tfrecords_val(out_file, var_list, name_list):
-    dict1 = {}
-    dict1[name_list[0]] = _bytes_feature(var_list[0].tostring())
-    dict1[name_list[1]] = _bytes_feature(var_list[1].tostring())
-    dict1[name_list[2]] = _bytes_feature(var_list[2].tostring())
-    dict1[name_list[3]] = _bytes_feature(np.array(var_list[3]).tostring())
-    example = tf.train.Example(features = tf.train.Features(feature = dict1))
-    out_file.write(example.SerializeToString())
-'''
-def selectFrequentAnswers(questions_train, questions_lengths_train, answers_train, 
-                          images_train, images_train_path,  
-                          answers_train_all, max_answers):
-    answer_fq= defaultdict(int)
-    #build a dictionary of answers
-    for answer in answers_train:
-        answer_fq[answer] += 1
-
-    sorted_fq = sorted(answer_fq.items(), key=operator.itemgetter(1), reverse=True)[0:max_answers]
-    top_answers, top_fq = zip(*sorted_fq)
-    new_questions_train = []
-    new_questions_lengths_train = []
-    new_answers_train = []
-    new_images_train = []
-    new_images_train_path = []
-    new_answers_train_all = []
-    
-    #only those answer which appear int he top 1K are used for training
-    for question, question_length, answer, image, image_path, answer_all in zip(questions_train,
-                                                                                     questions_lengths_train,
-                                                                                     answers_train, 
-                                                                                     images_train, 
-                                                                                     images_train_path, 
-                                                                                     answers_train_all):
-        if answer in top_answers:
-            new_questions_train.append(question)
-            new_questions_lengths_train.append(question_length)
-            new_answers_train.append(answer)
-            new_images_train.append(image)
-            new_images_train_path.append(image_path)
-            new_answers_train_all.append(answer_all)
-
-    return (new_questions_train, new_questions_lengths_train,
-            new_answers_train, new_images_train, 
-            new_images_train_path, new_answers_train_all)
-
-def right_align(seq,lengths):
-    v = np.zeros(np.shape(seq))
-    N = np.shape(seq)[1]
-    for i in range(np.shape(seq)[0]):
-        v[i, (N-lengths[i]):N]=seq[i, 0:lengths[i]]
-    return v
-def encode_questions(ques_tokens, wtoi, max_length):
-    N = len(ques_tokens)
-    label_arrays = np.zeros((N, max_length), dtype='uint32')
-    label_length = np.zeros(N, dtype='uint32')
-    for i, tokens in enumerate(ques_tokens):
-        label_length[i] = min(max_length, len(tokens))
-        for k, w in enumerate(tokens):
-            if k < max_length:
-                label_arrays[i,k] = wtoi[w]
-    #label_arrays = right_align(label_arrays, label_length)
-    
-    return label_arrays
-
-def get_tokens(sent_list):
-    ans = []
-    for sent in sent_list:
-        ans.append(tokenize(sent.lower()))
-    return ans
-def final_tokens(tokens_list, counts, count_thr):
-    ans = []
-    for tokens in tokens_list:
-        final_tokens = [w if counts.get(w,0) > count_thr else 'UNK' for w in tokens]
-        ans.append(final_tokens)
-    return ans
-def tokenize(sentence):
-    return [i for i in re.split(r"([-.\"',:? !\$#@~()*&\^%;\[\]/\\\+<>\n=])", sentence) if i!='' and i!=' ' and i!='\n'];
+from ops import *
+from helpers import tokenize, selectFrequentAnswers, get_tokens, final_tokens, encode_questions
+import sys
 
 temp = '*'*10    
 print(temp)
@@ -230,18 +129,18 @@ print('')
 
 img_shape = [256, 256, 3]
 print('{} Writing tfrecord file for validation data {}'.format(temp, temp))
-N = len(images_val_path)
+N = 500#len(images_val_path)
 out_filepath = 'data/val_data.tfrecords'
 if os.path.exists(out_filepath):
     os.unlink(out_filepath)
 out_file = tf.python_io.TFRecordWriter(out_filepath)
 start = timeit.default_timer()
-for i in range(24677, N):
+for i in range(N):
     img_path = os.path.join('data', images_val_path[i])
-    img = imageio.imread(img_path)
-    if len(img.shape) < 3:
-        print('Skipped for image number {}. Image shape ==> {}'.format(i+1, img.shape))
-        continue
+    img = imageio.imread(img_path) 
+    if len(img.shape) == 2:
+        print('Image {} is an RGB image. Converted to RGB. Image shape ==> {}'.format(i+1, img.shape))
+        img = np.stack([img, img, img], axis = 2)
     img = resize(img, img_shape[:2], order = 3)
     img = img.astype(np.float32)
     ques = ques_array_val[i]
@@ -260,7 +159,7 @@ print('{} Done writing tfrecord file for validation data. Time = {:.2f} s. {}'.f
 print('')
 
 print('{} Writing tfrecord file for training data {}'.format(temp, temp))
-N = len(images_train_path)
+N = 3000#len(images_train_path)
 out_filepath = 'data/train_data.tfrecords'
 if os.path.exists(out_filepath):
     os.unlink(out_filepath)
@@ -272,9 +171,9 @@ count = 0
 for i in range(N):
     img_path = os.path.join('data', images_train_path[i])
     img = imageio.imread(img_path)
-    if len(img.shape) < 3:
-        print('Skipped for image number {}. Image shape ==> {}'.format(i+1, img.shape))
-        continue
+    if len(img.shape) == 2:
+        print('Image {} is an RGB image. Converted to RGB. Image shape ==> {}'.format(i+1, img.shape))
+        img = np.stack([img, img, img], axis = 2)
     img = resize(img, img_shape[:2], order = 3)
     img = img.astype(np.float32)
     sum_stats += img
