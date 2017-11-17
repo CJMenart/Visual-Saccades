@@ -110,24 +110,26 @@ class PatchGenerator:
                     selection = tf.slice(patches,
                                          [next_patch_idx,0,0,0,0],
                                          [1,-1] + self.patch_size + [3])
-
+		    selection = tf.squeeze(selection, axis = 0)
+		    if i ==1:
+		    	tf.get_variable_scope().reuse_variables()	
                     patch_input = tf.reshape(self.conv_net(selection, i,
                                                            is_training = is_train,
                                                            name = 'patch_conv_net'),
                                              [self.batch_size, -1])
-                    patch_input = tf.squeeze(patch_input, axis=0)
+                    #patch_input = tf.squeeze(patch_input, axis=0)
                     
-                    inputs = tf.concat(lr_img_code,
+                    inputs = tf.concat([lr_img_code,
                                        ques_embed,
-                                       patch_input,
+                                       patch_input],
                                        axis = 1)
-                    if i == 1:
-                        tf.get_variable_scope().reuse_variables()
+                    #if i == 1:
+                        #tf.get_variable_scope().reuse_variables()
                     output, states = self.stacked_LSTM(inputs, states)
                     output_patch = self.deconv_net(output, i, is_training = is_train)
                     difference = tf.abs(output_patch - patches)
                     mean_diff = tf.reduce_mean(difference, [1, 2, 3, 4])
-                    next_patch_idx = tf.argmin(mean_diff)
+                    next_patch_idx = tf.argmin(mean_diff, output_type = tf.int32)
                     if i == 0:
                         loss = tf.reduce_min(mean_diff)
                     else:
@@ -245,8 +247,8 @@ class ImagePlusQuesFeatureNet:
             #elif self.feat_join == 'concat':
             #    final_feat = tf.concat([final_img_feat, final_ques_feat], axis = 1)
                 
-            print('final_feat', final_feat.get_shape().as_list(), final_feat.dtype)
-            
+            #print('final_feat', final_feat.get_shape().as_list(), final_feat.dtype)
+            final_feat = final_img_feat
             if is_train:
                 final_feat = tf.nn.dropout(final_feat, keep_prob = keep_prob)
             init = tf.random_uniform_initializer(-0.08, 0.08)

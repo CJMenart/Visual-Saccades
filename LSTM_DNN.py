@@ -35,8 +35,8 @@ class LSTM_DNN(Model):
         self.is_bnorm = args.is_bnorm
         self.feat_join = args.feat_join
         self.tfrecords_path = args.tfrecords_path
-        self.train_data_path = 'data/train_data.tfrecords'
-        self.val_data_path = 'data/val_data.tfrecords'
+        self.train_data_path = 'data/train_data_small.tfrecords'
+        self.val_data_path = 'data/val_data_small.tfrecords'
         self.train_stats_path = 'data/train_stats.npz'
         self.labelencoder = joblib.load(args.lbl_enc_file)
         
@@ -210,8 +210,8 @@ class LSTM_DNN(Model):
               self.ques_embed_W.dtype)
         print('final_img_feat', self.final_img_feat[idx].get_shape().as_list(), 
               self.final_img_feat[idx].dtype)
-        print('final_ques_feat', self.final_ques_feat[idx].get_shape().as_list(), 
-              self.final_ques_feat[idx].dtype)
+        #print('final_ques_feat', self.final_ques_feat[idx].get_shape().as_list(), 
+             # self.final_ques_feat[idx].dtype)
         print('out_logit', self.out_logit[idx].get_shape().as_list(), self.out_logit[idx].dtype)
         print('loss', self.loss[idx].get_shape().as_list(), self.loss[idx].dtype)
             

@@ -130,7 +130,7 @@ print('')
 img_shape = [256, 256, 3]
 print('{} Writing tfrecord file for validation data {}'.format(temp, temp))
 N = 500#len(images_val_path)
-out_filepath = 'data/val_data.tfrecords'
+out_filepath = 'data/val_data_small.tfrecords'
 if os.path.exists(out_filepath):
     os.unlink(out_filepath)
 out_file = tf.python_io.TFRecordWriter(out_filepath)
@@ -160,7 +160,7 @@ print('')
 
 print('{} Writing tfrecord file for training data {}'.format(temp, temp))
 N = 3000#len(images_train_path)
-out_filepath = 'data/train_data.tfrecords'
+out_filepath = 'data/train_data_small.tfrecords'
 if os.path.exists(out_filepath):
     os.unlink(out_filepath)
 out_file = tf.python_io.TFRecordWriter(out_filepath)
