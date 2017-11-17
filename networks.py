@@ -108,17 +108,19 @@ class PatchGenerator:
             with tf.variable_scope('lstm_layer'):
                 for i in range(self.num_lstm_unroll):
                     selection = tf.slice(patches,
-                                         [next_patch_idx,0,0,0,0,0],
+                                         [next_patch_idx,0,0,0,0],
                                          [1,-1] + self.patch_size + [3])
 
                     patch_input = tf.reshape(self.conv_net(selection, i,
                                                            is_training = is_train,
                                                            name = 'patch_conv_net'),
                                              [self.batch_size, -1])
-                                
+                    patch_input = tf.squeeze(patch_input, axis=0)
+                    
                     inputs = tf.concat(lr_img_code,
                                        ques_embed,
-                                       patch_input)
+                                       patch_input,
+                                       axis = 1)
                     if i == 1:
                         tf.get_variable_scope().reuse_variables()
                     output, states = self.stacked_LSTM(inputs, states)
