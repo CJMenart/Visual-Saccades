@@ -14,10 +14,11 @@ def main():
     args = parser.parse_args()
 
     #nlp = English() #used for conting number of tokens
-
+    data_dir = '/fs/project/PAS1315/VQA/Annotations/'
+    data_dir1 = '/fs/project/PAS1315/VQA/Questions/'
     if args.split == 'train':
-        annFile = 'data/v2_mscoco_train2014_annotations.json'
-        quesFile = 'data/v2_OpenEnded_mscoco_train2014_questions.json'
+        annFile = data_dir + 'v2_mscoco_train2014_annotations.json'
+        quesFile = data_dir1 + 'v2_OpenEnded_mscoco_train2014_questions.json'
         questions_file = 'data/preprocessed/questions_train2014.txt'
         questions_id_file = 'data/preprocessed/questions_id_train2014.txt'
         questions_lengths_file = 'data/preprocessed/questions_lengths_train2014.txt'
@@ -30,8 +31,8 @@ def main():
         data_split = 'training data'
         subtype = 'train2014'
     elif args.split == 'val':
-        annFile = 'data/v2_mscoco_val2014_annotations.json'
-        quesFile = 'data/v2_OpenEnded_mscoco_val2014_questions.json'
+        annFile = data_dir + 'v2_mscoco_val2014_annotations.json'
+        quesFile = data_dir1 + 'v2_OpenEnded_mscoco_val2014_questions.json'
         questions_file = 'data/preprocessed/questions_val2014.txt'
         questions_id_file = 'data/preprocessed/questions_id_val2014.txt'
         questions_lengths_file = 'data/preprocessed/questions_lengths_val2014.txt'
@@ -44,7 +45,7 @@ def main():
         data_split = 'validation data'
         subtype = 'val2014'
     elif args.split == 'test-dev':
-        quesFile = 'data/v2_OpenEnded_mscoco_test-dev2015_questions.json'
+        quesFile = data_dir1 + 'v2_OpenEnded_mscoco_test-dev2015_questions.json'
         questions_file = 'data/preprocessed/questions_test-dev2015.txt'
         questions_id_file = 'data/preprocessed/questions_id_test-dev2015.txt'
         questions_lengths_file = 'data/preprocessed/questions_lengths_test-dev2015.txt'
@@ -53,7 +54,7 @@ def main():
         data_split = 'test-dev data'
         subtype = 'test-dev2015'
     elif args.split == 'test':
-        quesFile = 'data/v2_OpenEnded_mscoco_test2015_questions.json'
+        quesFile = data_dir1 + 'v2_OpenEnded_mscoco_test2015_questions.json'
         questions_file = 'data/preprocessed/questions_test2015.txt'
         questions_id_file = 'data/preprocessed/questions_id_test2015.txt'
         questions_lengths_file = 'data/preprocessed/questions_lengths_test2015.txt'

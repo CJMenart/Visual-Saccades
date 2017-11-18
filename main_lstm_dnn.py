@@ -5,7 +5,7 @@ import argparse
 from LSTM_DNN import LSTM_DNN
 import sys
 LR = 0.0002
-BATCH_SIZE = 10
+BATCH_SIZE = 128
 EPOCH = 300
 NUM_LSTM_LAYER = 2
 LSTM_LAYER_SIZE = 512

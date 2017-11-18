@@ -35,8 +35,8 @@ class LSTM_DNN(Model):
         self.is_bnorm = args.is_bnorm
         self.feat_join = args.feat_join
         self.tfrecords_path = args.tfrecords_path
-        self.train_data_path = 'data/train_data_small.tfrecords'
-        self.val_data_path = 'data/val_data_small.tfrecords'
+        self.train_data_path = 'data/train_data.tfrecords'
+        self.val_data_path = 'data/val_data.tfrecords'
         self.train_stats_path = 'data/train_stats.npz'
         self.labelencoder = joblib.load(args.lbl_enc_file)
         
@@ -119,7 +119,7 @@ class LSTM_DNN(Model):
                 
             with tf.name_scope('batch_val_data'):
                 self.val_batch = tf.train.batch(self.val_data, batch_size = args.batch_size, 
-                                        num_threads = 1,
+                                        num_threads = 10,
                                         capacity=1000 + 3 * args.batch_size,
                                         allow_smaller_final_batch=False)
                 val_img = self.val_batch[0]
@@ -288,15 +288,21 @@ class LSTM_DNN(Model):
         coord = tf.train.Coordinator()
         threads = tf.train.start_queue_runners(coord=coord)
         epoch = self.epoch
+	'''
         num_train_examples = 0
         for record in tf.python_io.tf_record_iterator(self.train_data_path):
             num_train_examples += 1
+        '''
+	num_train_examples = 364085
         num_train_batches = num_train_examples / self.batch_size
         print('Number of Train examples: ', num_train_examples)
         print('Batches per train epoch: ', num_train_batches)
+	'''
         num_val_examples = 0
         for record in tf.python_io.tf_record_iterator(self.val_data_path):
             num_val_examples += 1
+	'''
+	num_val_examples = 214354
         num_val_batches = num_val_examples / self.batch_size
         print('Number of val examples: ', num_val_examples)
         print('Batches per val epoch: ', num_val_batches)

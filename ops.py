@@ -153,7 +153,7 @@ def read_val_data(filepath, name_list, shape_list, dtype_list):
 def batch_data(data, batch_size):
     with tf.name_scope('batch_and_shuffle_data'):
         output = tf.train.shuffle_batch(data, batch_size = batch_size, 
-                                        num_threads = 2,
+                                        num_threads = 8,
                                         capacity=1000 + 3 * batch_size,
                                         min_after_dequeue = 1000,
                                         name='in_and_out')
