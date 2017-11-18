@@ -139,7 +139,7 @@ for i in range(N):
     img_path = os.path.join('/fs/project/PAS1315/VQA/Images/', images_val_path[i])
     img = imageio.imread(img_path) 
     if len(img.shape) == 2:
-        print('Image {} is an RGB image. Converted to RGB. Image shape ==> {}'.format(i+1, img.shape))
+        print('Image {} is an greyscale image. Converted to RGB. Image shape ==> {}'.format(i+1, img.shape))
         img = np.stack([img, img, img], axis = 2)
     img = resize(img, img_shape[:2], order = 3)
     img = img.astype(np.float32)
@@ -172,8 +172,11 @@ for i in range(N):
     img_path = os.path.join('/fs/project/PAS1315/VQA/Images/', images_train_path[i])
     img = imageio.imread(img_path)
     if len(img.shape) == 2:
-        print('Image {} is an RGB image. Converted to RGB. Image shape ==> {}'.format(i+1, img.shape))
+        print('Image {} is a greyscale image. Converted to RGB. Image shape ==> {}'.format(i+1, img.shape))
         img = np.stack([img, img, img], axis = 2)
+    if len(img.shape) is not in [2, 3]:
+        print('Corrupted Image skipping it')
+        continue
     img = resize(img, img_shape[:2], order = 3)
     img = img.astype(np.float32)
     sum_stats += img
