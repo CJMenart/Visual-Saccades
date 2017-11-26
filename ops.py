@@ -4,6 +4,16 @@ import numpy as np
 import os
 import shutil
 from tensorflow.contrib.layers import xavier_initializer
+
+def affine_layer(inputs, out_dim, name = 'affine_layer'):
+    in_dim=inputs.get_shape().as_list()[1]
+    with tf.variable_scope(name):
+        init = tf.random_uniform_initializer(-0.08, 0.08)
+        weights = tf.get_variable(name = 'weights',shape = [in_dim,out_dim]
+                                , dtype = tf.float32, initializer = init)
+        outputs = tf.matmul(inputs, weights)
+    return outputs
+
 def conv_layer(inputs, filter_shape, stride, name = 'conv_layer'):
     with tf.variable_scope(name):
         init = tf.contrib.layers.xavier_initializer()
@@ -153,7 +163,7 @@ def read_val_data(filepath, name_list, shape_list, dtype_list):
 def batch_data(data, batch_size):
     with tf.name_scope('batch_and_shuffle_data'):
         output = tf.train.shuffle_batch(data, batch_size = batch_size, 
-                                        num_threads = 2,
+                                        num_threads = 8,
                                         capacity=1000 + 3 * batch_size,
                                         min_after_dequeue = 1000,
                                         name='in_and_out')

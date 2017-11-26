@@ -4,18 +4,20 @@ from ops import *
 import tensorflow as tf
 import numpy as np
 from ops import *
-from model_helpers import *
 from tensorflow.contrib.layers import fully_connected
 import sys
 
 class QuestionEmbeddingNet:
-    def __init__(self, lstm_layer_size, num_lstm_layer, use_peepholes = True, is_bnorm = True, name = 'ques_embed'):
+    def __init__(self, lstm_layer_size, num_lstm_layer, final_feat_size = 1024, activation_fn = tf.tanh,  
+                 use_peepholes = True, is_bnorm = True, name = 'ques_embed'):
         self.name = name
         self.lstm_layer_size = lstm_layer_size
-        self.num_lstm_layer = num_lstm_layer
+        self.num_lstm_layer = 1
         self.use_peepholes = use_peepholes
         self.LSTMs = []
         self.is_bnorm = is_bnorm
+        self.final_feat_size = final_feat_size
+        self.activation_fn = activation_fn
         if is_bnorm:
             self.batch_norm = BatchNorm()
         for i in range(self.num_lstm_layer):
@@ -41,15 +43,19 @@ class QuestionEmbeddingNet:
                                               dtype = tf.float32, initializer = init)
             print('ques_embed_W', self.ques_embed_W.get_shape().as_list(),  self.ques_embed_W.dtype)
                 
-            states = self.stacked_LSTM.zero_state(batch_size, tf.float32)
+            init_states = self.stacked_LSTM.zero_state(batch_size, tf.float32)
             inputs = []
             for i in range(max_ques_length):
                 inputs.append(tf.nn.embedding_lookup(self.ques_embed_W, ques_inp[:, i]))
             lstm_inputs = tf.stack(inputs, axis = 1)
+            print('lstm_inputs => {}'.format(lstm_inputs.get_shape().as_list()))
+            print('ques_len_inp => {}'.format(ques_len_inp.get_shape().as_list()))
+            print('initial_states[0] => {}'.format(init_states))
+            
             outputs, states = tf.nn.dynamic_rnn(cell=self.stacked_LSTM,
                                              inputs=lstm_inputs,
                                              sequence_length=ques_len_inp,
-                                             initial_state=states,
+                                             initial_state=init_states,
                                              parallel_iterations=32,
                                              swap_memory=False)
             '''
@@ -63,85 +69,136 @@ class QuestionEmbeddingNet:
                 if i == 0:
                     tf.get_variable_scope().reuse_variables()
             '''
-            print(outputs[:, i, :].get_shape().as_list())
+            print('lstm_outputs => {}'.format(outputs.get_shape().as_list()))
             concat_list = []
             for i in range(self.num_lstm_layer):
                 concat_list.append(states[i].c)
                 concat_list.append(states[i].h)
             ques_embed = tf.concat(concat_list, axis = 1)
-            print('ques_embed', ques_embed.get_shape().as_list(), ques_embed.dtype)
+            print('ques_embed => {}'.format(ques_embed.get_shape().as_list()))
+            '''
+            if self.is_bnorm:     
+                with tf.variable_scope('ques_embed_reduce_W'):
+                    final_ques_feat = affine_layer(ques_embed, self.final_feat_size)
+                    final_ques_feat = self.batch_norm(final_ques_feat, is_train)
+                    final_ques_feat = self.activation_fn(final_ques_feat)
+                
+            else:
+              
+                final_ques_feat = fully_connected(ques_embed, 
+                                                  self.final_feat_size, 
+                                                  self.activation_fn,
+                                                  scope = 'ques_embed_reduce_W')
+            '''
             return ques_embed
-
+            
 class PatchGenerator:
-    def __init__(self, batch_size, use_peepholes = True, is_bnorm = True):
+    def __init__(self, batch_size, use_peepholes = True, is_bnorm = True, final_feat_size = 1024, activation_fn = tf.tanh):
         self.lr_img_size = [32, 32]
         self.patch_size = self.lr_img_size
         self.lstm_layer_size = 1024
-        self.num_lstm_layers = 2
+        self.num_lstm_layers = 1
         self.batch_size = batch_size
         self.is_bnorm = is_bnorm
         self.LSTMs = []
         self.num_lstm_unroll = 10
         self.use_peepholes = use_peepholes
-        self.output_patch = []
+        self.patches_lst = []
+        self.final_feat_size = final_feat_size
+        self.activation_fn = activation_fn
         if is_bnorm:
             self.batch_norm = BatchNorm()
         for i in range(self.num_lstm_layers):
             self.LSTMs.append(tf.nn.rnn_cell.LSTMCell(self.lstm_layer_size, forget_bias = 1.0, 
-                                                      use_peepholes = self.use_peepholes))
+                                                      use_peepholes = self.use_peepholes, state_is_tuple = True))
             
-    def __call__(self, input_img, ques_embed, is_train = True):
+    def __call__(self, input_img, ques_embed, is_train = True, keep_prob = 0.5):
+        if is_train:
+            self.LSTMs_drop = []
+            for i in range(self.num_lstm_layers):
+                self.LSTMs_drop.append(tf.nn.rnn_cell.DropoutWrapper(self.LSTMs[i], 
+                                                            output_keep_prob = keep_prob))
+            self.stacked_LSTM = tf.nn.rnn_cell.MultiRNNCell(self.LSTMs_drop)
+        else:
+            self.stacked_LSTM = tf.nn.rnn_cell.MultiRNNCell(self.LSTMs)
         with tf.name_scope('extract_patches'):
             patches = tf.extract_image_patches(input_img, ksizes = [1] + self.patch_size + [1], 
                                              strides = [1, 16, 16, 1], 
                                              rates = [1, 1, 1, 1 ], padding = 'SAME')
             patches = tf.reshape(patches, [-1] + [self.batch_size] + self.patch_size + [3])
             print('Extracted patches shape ==> {}'.format(patches.get_shape().as_list()))
-            next_patch_idx = tf.shape(patches)[0]//2
+            next_patch_idx = tf.constant(128, shape = (self.batch_size, ), 
+                                         dtype = tf.int32)
+            print('next_patch_idx_shape ==> {}'.format(next_patch_idx.get_shape().as_list()))
             lr_img = tf.image.resize_images(input_img, size = self.lr_img_size, method=tf.image.ResizeMethod.BICUBIC)
             lr_img_code =  self.conv_net(lr_img, 0, is_training = is_train, name = 'lr_img_conv_net')
             lr_img_code = tf.reshape(lr_img_code, [self.batch_size, -1])
          
-            self.stacked_LSTM = tf.nn.rnn_cell.MultiRNNCell(self.LSTMs)
+            #self.stacked_LSTM = tf.nn.rnn_cell.MultiRNNCell(self.LSTMs)
             states = self.stacked_LSTM.zero_state(self.batch_size, tf.float32)
-            
+            batch_id = tf.range(0, self.batch_size, delta = 1, dtype = tf.int32)
+            print('batch_id shape ==> {}'.format(batch_id.get_shape().as_list()))
+            patches_lst = []
             with tf.variable_scope('lstm_layer'):
                 for i in range(self.num_lstm_unroll):
-                    selection = tf.slice(patches,
-                                         [next_patch_idx,0,0,0,0],
-                                         [1,-1] + self.patch_size + [3])
-		    selection = tf.squeeze(selection, axis = 0)
-		    if i ==1:
-		    	tf.get_variable_scope().reuse_variables()	
+                    index = tf.stack([next_patch_idx, batch_id], axis = 1)
+                    selection = tf.gather_nd(patches, index)
+                    #print('Selection shape ==> {}'.format(selection.get_shape().as_list()))
+                    if i ==1:
+                        tf.get_variable_scope().reuse_variables()
                     patch_input = tf.reshape(self.conv_net(selection, i,
                                                            is_training = is_train,
                                                            name = 'patch_conv_net'),
                                              [self.batch_size, -1])
-                    #patch_input = tf.squeeze(patch_input, axis=0)
+                    
                     
                     inputs = tf.concat([lr_img_code,
                                        ques_embed,
                                        patch_input],
                                        axis = 1)
-                    #if i == 1:
-                        #tf.get_variable_scope().reuse_variables()
+                    
                     output, states = self.stacked_LSTM(inputs, states)
                     output_patch = self.deconv_net(output, i, is_training = is_train)
-                    difference = tf.abs(output_patch - patches)
-                    mean_diff = tf.reduce_mean(difference, [1, 2, 3, 4])
-                    next_patch_idx = tf.argmin(mean_diff, output_type = tf.int32)
+                    patches_lst.append(output_patch)
                     if i == 0:
-                        loss = tf.reduce_min(mean_diff)
+                        print('output_patch => {}'.format(output_patch.get_shape().as_list()))
+                    difference = tf.abs(output_patch - patches)
+                    #print('Difference shape ==> {}'.format(difference.get_shape().as_list()))
+                    mean_diff = tf.reduce_mean(difference, [2, 3, 4])
+                    #print('mean_diff shape ==> {}'.format(mean_diff.get_shape().as_list()))
+                    next_patch_idx = tf.argmin(mean_diff, output_type = tf.int32, axis = 0)
+                    #print('next_patch_idx shape ==> {}'.format(next_patch_idx.get_shape().as_list()))
+                    if i == 0:
+                        loss = tf.reduce_mean(tf.reduce_min(mean_diff, axis = 0))
                     else:
-                        loss += tf.reduce_min(mean_diff)
+                        loss += tf.reduce_mean(tf.reduce_min(mean_diff, axis = 0))
                     if i == 1:
                         print('LSTM Input ==> ' + str(inputs.get_shape().as_list()))
                         print('LSTM Output ==> ' + str(output.get_shape().as_list()))
                         
-                self.output_patch.append(output_patch)
+                self.patches_lst.append(patches_lst)
                 # img_feature = tf.reshape(output_patch, [self.batch_size, -1])
-                img_feature = tf.reshape(states, [self.batch_size, -1])
-                return img_feature, loss
+                concat_list = []
+                for i in range(self.num_lstm_layers):
+                    concat_list.append(states[i].c)
+                    concat_list.append(states[i].h)
+                img_embed = tf.concat(concat_list, axis = 1)
+                print('ques_embed => {}'.format(img_embed.get_shape().as_list()))
+
+            if self.is_bnorm:     
+                with tf.variable_scope('img_embed_reduce_W'):
+                    final_img_feat = affine_layer(img_embed, self.final_feat_size)
+                    final_img_feat = self.batch_norm(final_img_feat, is_train)
+                    final_img_feat = self.activation_fn(final_img_feat)
+
+            else:
+
+                final_img_feat = fully_connected(img_embed, 
+                                                 self.final_feat_size, 
+                                                 self.activation_fn,
+                                                 scope = 'img_embed_reduce_W')
+                
+            return final_img_feat, loss
             
     def deconv_net(self, input_code, i, is_training = True, name = 'deconvnet'):
         if i==0:
@@ -167,7 +224,7 @@ class PatchGenerator:
             out3 = deconv(out2, 3, [self.batch_size, 32, 32, 3], [5, 5], name = 'down_conv3')
             if self.is_bnorm:
                 out3 = self.batch_norm(out3, is_train=is_training, name = 'bnorm3')
-            out3 = leakyrelu(out3)
+            out3 = tf.tanh(out3)
             if i==0:
                 print('Third Layer: Input ==> ' + str(out2.get_shape().as_list()) + ', Output ==> '\
                       + str(out3.get_shape().as_list()))
@@ -213,42 +270,21 @@ class ImagePlusQuesFeatureNet:
         self.is_bnorm = is_bnorm
         self.batch_norm = BatchNorm()
         self.feat_join = feat_join
-    # def __call__(self, img_inp, ques_inp, is_train = True, keep_prob = 0.5):
-    def __call__(self, img_inp, is_train = True, keep_prob = 0.5):       
+    def __call__(self, img_inp, ques_inp, is_train = True, keep_prob = 0.5):
         with tf.variable_scope('feature_combination'):
             if is_train:
                 img_inp = tf.nn.dropout(img_inp, keep_prob = keep_prob)
-                # ques_inp = tf.nn.dropout(ques_inp, keep_prob = keep_prob)
-            if self.is_bnorm:
-                with tf.variable_scope('img_embed_W'):
-                    with tf.variable_scope('hidden1'):
-                        final_img_feat = affine_layer(img_inp, self.final_feat_size)
-                        final_img_feat = self.batch_norm(final_img_feat, is_train)
-                        final_img_feat = tf.tanh(final_img_feat)
-                      
-                #with tf.variable_scope('ques_embed_W'):
-                    #final_ques_feat = affine_layer(ques_inp, self.final_feat_size)
-                    #final_ques_feat = self.batch_norm(final_ques_feat, is_train)
-                    #final_ques_feat = tf.tanh(final_ques_feat)
+                ques_inp = tf.nn.dropout(ques_inp, keep_prob = keep_prob)
+           
+            if self.feat_join == 'mul':
+                final_feat = tf.multiply(img_inp, ques_inp)
+            elif self.feat_join == 'add':
+                final_feat = tf.add(img_inp, ques_inp)
+            elif self.feat_join == 'concat':
+                final_feat = tf.concat([img_inp, ques_inp], axis = 1)
                 
-            else:
-                final_img_feat = fully_connected(img_inp, self.final_feat_size, 
-                                                 self.activation_fn, 
-                                                 scope = 'img_embed_reduce_W1')
-
-                #final_ques_feat = fully_connected(ques_inp, 
-                                                  #self.final_feat_size, 
-                                                  #self.activation_fn,
-                                                  #scope = 'ques_embed_reduce_W')
-            #if self.feat_join == 'mul':
-            #    final_feat = tf.multiply(final_img_feat, final_ques_feat )
-            #elif self.feat_join == 'add':
-            #    final_feat = tf.add(final_img_feat, final_ques_feat )
-            #elif self.feat_join == 'concat':
-            #    final_feat = tf.concat([final_img_feat, final_ques_feat], axis = 1)
-                
-            #print('final_feat', final_feat.get_shape().as_list(), final_feat.dtype)
-            final_feat = final_img_feat
+            print('final_feat', final_feat.get_shape().as_list(), final_feat.dtype)
+            #final_feat = final_img_feat
             if is_train:
                 final_feat = tf.nn.dropout(final_feat, keep_prob = keep_prob)
             init = tf.random_uniform_initializer(-0.08, 0.08)
@@ -258,19 +294,18 @@ class ImagePlusQuesFeatureNet:
                     with tf.variable_scope('hidden0'):
                         final_feat = affine_layer(final_feat, final_feat.get_shape().as_list()[1])
                         final_feat = self.batch_norm(final_feat, is_train)
-                        final_feat = leakyrelu(final_feat)
+                        final_feat = tf.tanh(final_feat)
                         final_feat = tf.nn.dropout(final_feat, keep_prob = keep_prob)
                     
                     with tf.variable_scope('hidden1'):
                         final_feat = affine_layer(final_feat, self.out_layer_size)
                         final_feat = self.batch_norm(final_feat, is_train)
             else:
-                final_feat = fully_connected(final_feat, 1024, activation_fn = None,
+                final_feat = fully_connected(final_feat, 1024, activation_fn = tf.tanh,
                                                  weights_initializer = init, scope = 'multi_modal_W')
                 final_feat = fully_connected(final_feat, self.out_layer_size, activation_fn = None,
                                                  weights_initializer = init, scope = 'multi_modal_W1')
-            #return final_img_feat, final_ques_feat, final_feat
-            return final_img_feat, final_feat        
+            return final_feat
         
 class BatchNorm:
     def __init__(self, name = 'Bnorm'):

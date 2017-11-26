@@ -46,14 +46,21 @@ class LSTM_DNN(Model):
         self.lstm_keep_prob = tf.Variable(args.lstm_keep_prob, dtype = tf.float32, 
                                               trainable = False, 
                                               name = 'lstm_keep_prob')
-        self.patch_loss_lambda = 1.
+        self.patch_loss_lambda = 1.0
         self.is_vars_summ = True
         self.is_grads_summ = True
         self.optimizer = tf.train.AdamOptimizer(self.lr)
         self.use_peepholes = args.use_peepholes
         self.ques_embed_net = QuestionEmbeddingNet(self.lstm_layer_size, 
-                                                   self.num_lstm_layer, self.use_peepholes, self.is_bnorm)
-        self.patch_generator = PatchGenerator(self.batch_size, self.is_bnorm)
+                                                   self.num_lstm_layer, 
+                                                   use_peepholes = self.use_peepholes, 
+                                                   is_bnorm = self.is_bnorm, 
+                                                   final_feat_size = self.final_feat_size)
+                                                   
+        self.patch_generator = PatchGenerator(self.batch_size, 
+                                              is_bnorm = self.is_bnorm, 
+                                              use_peepholes = self.use_peepholes, 
+                                              final_feat_size = self.final_feat_size)
         self.combine_feature =  ImagePlusQuesFeatureNet(self.final_feat_size, self.out_layer_size, 
                                                         tf.tanh, self.feat_join, self.is_bnorm)
         self.build_model(devices, args)
@@ -94,8 +101,8 @@ class LSTM_DNN(Model):
             self.ans = []
             self.ques_embed = []
             self.img_feat = []
-            self.final_img_feat = []
-            self.final_ques_feat = []
+            #self.final_img_feat = []
+            #self.final_ques_feat = []
             self.out_logit = []
             self.loss = []
             self.patch_loss = []
@@ -119,7 +126,7 @@ class LSTM_DNN(Model):
                 
             with tf.name_scope('batch_val_data'):
                 self.val_batch = tf.train.batch(self.val_data, batch_size = args.batch_size, 
-                                        num_threads = 1,
+                                        num_threads = 10,
                                         capacity=1000 + 3 * args.batch_size,
                                         allow_smaller_final_batch=False)
                 val_img = self.val_batch[0]
@@ -152,14 +159,11 @@ class LSTM_DNN(Model):
                 self.img_feat_test = self.patch_generator(self.img[idx],
                                                           self.ques_embed_test,
                                                           is_train = False)[0]
-                #self.final_img_feat_test, self.final_ques_feat_test, \
-                self.final_img_feat_test, \
-                self.out_logit_test = self.combine_feature(self.img_feat_test, 
+                
+                self.out_logit_test = self.combine_feature(self.img_feat_test,
+                                                           self.ques_embed_test, 
                                                            is_train = False, 
                                                            keep_prob = 1)
-                #self.out_logit_test = self.combine_feature(self.img_feat_test, self.ques_embed_test, 
-                #                                           is_train = False, 
-                #                                           keep_prob = 1)
                 self.out_proba_test = tf.nn.softmax(self.out_logit_test)
                 self.val_accuracy = tf.placeholder(dtype = tf.float32, shape = ())
             tf.get_variable_scope().reuse_variables()
@@ -174,15 +178,15 @@ class LSTM_DNN(Model):
                                                       is_train = True, 
                                                       keep_prob = self.lstm_keep_prob)
             img_feat, patch_loss = self.patch_generator(self.img[idx], ques_embed, is_train = True)
-            final_img_feat, \
-            out_logit = self.combine_feature(img_feat, 
-                                              is_train = True, 
-                                              keep_prob = self.hidden_keep_prob)
-         
+            
+            out_logit = self.combine_feature(img_feat,
+                                             ques_embed, 
+                                             is_train = True, 
+                                             keep_prob = self.hidden_keep_prob)
             self.ques_embed.append(ques_embed)
             self.img_feat.append(img_feat)
             self.patch_loss.append(patch_loss)
-            self.final_img_feat.append(final_img_feat)
+            #self.final_img_feat.append(final_img_feat)
             #self.final_ques_feat.append(final_ques_feat)
             self.out_logit.append(out_logit)
             if idx == 0:
@@ -208,13 +212,13 @@ class LSTM_DNN(Model):
               self.ques_embed[idx].dtype)
         print('ques_embed_W', self.ques_embed_W.get_shape().as_list(), 
               self.ques_embed_W.dtype)
-        print('final_img_feat', self.final_img_feat[idx].get_shape().as_list(), 
-              self.final_img_feat[idx].dtype)
+        #print('final_img_feat', self.final_img_feat[idx].get_shape().as_list(), 
+              #self.final_img_feat[idx].dtype)
         #print('final_ques_feat', self.final_ques_feat[idx].get_shape().as_list(), 
              # self.final_ques_feat[idx].dtype)
         print('out_logit', self.out_logit[idx].get_shape().as_list(), self.out_logit[idx].dtype)
         print('loss', self.loss[idx].get_shape().as_list(), self.loss[idx].dtype)
-            
+        #sys.exit()   
     def get_vars(self):
         vars1 = tf.trainable_variables()
         self.vars_dict = {}
@@ -235,8 +239,9 @@ class LSTM_DNN(Model):
             for idx, loss in enumerate(self.patch_loss):
                 self.patch_loss_summ.append(scalar_summary('device' + str(idx) + '/patch_loss_summ', loss))
             self.patch_summ = []  
-            for idx, patch in enumerate(self.patch_generator.output_patch[1:]):
-                self.patch_loss_summ.append(tf.summary.image('device' + str(idx) + '/patch_loss_summ', patch))
+            for idx, patch_lst in enumerate(self.patch_generator.patches_lst[1:]):
+                for idx1, patch in enumerate(patch_lst):
+                    self.patch_loss_summ.append(tf.summary.image( 'device_{}/patch_summ_{}'.format(idx, idx1), patch))
             self.vars_summ = []
             if self.is_vars_summ:
                 for var in self.vars:
@@ -288,15 +293,21 @@ class LSTM_DNN(Model):
         coord = tf.train.Coordinator()
         threads = tf.train.start_queue_runners(coord=coord)
         epoch = self.epoch
+        
         num_train_examples = 0
         for record in tf.python_io.tf_record_iterator(self.train_data_path):
             num_train_examples += 1
+        
+        #num_train_examples = 364085
         num_train_batches = num_train_examples / self.batch_size
         print('Number of Train examples: ', num_train_examples)
         print('Batches per train epoch: ', num_train_batches)
+        
         num_val_examples = 0
         for record in tf.python_io.tf_record_iterator(self.val_data_path):
             num_val_examples += 1
+        
+        #num_val_examples = 214354
         num_val_batches = num_val_examples / self.batch_size
         print('Number of val examples: ', num_val_examples)
         print('Batches per val epoch: ', num_val_batches)
@@ -334,7 +345,7 @@ class LSTM_DNN(Model):
                     sess.run(self.increment_op)
                     self.train_writer.add_summary(_summ, sess.run(self.global_step))
                     self.train_writer.flush()
-                    if (curr_epoch % 1) == 0:
+                    if (curr_epoch % 5) == 0:
                         val_accuracy_test = self.get_validation_score(curr_epoch, False)
                         #val_accuracy_train = self.get_validation_score(curr_epoch, True)
                         val_summ_test = sess.run(self.val_accuracy_summ, feed_dict = {self.val_accuracy:val_accuracy_test})
@@ -468,7 +479,7 @@ class LSTM_DNN(Model):
                 f1.write(('*'*100 + '\n').encode('utf8'))
         f1.close()
         f2 = open('data/overall_results.txt', 'a')
-        f2.write('Total Accuracy: {:.4f} \n\n'.format(correct_val/float(total)))
+        f2.write('Total Alccuracy: {:.4f} \n\n'.format(correct_val/float(total)))
        
         f2.write('Accuracy on Yes No questions: {:.4f} \n\n'.format(binary_correct_val / float(binary_total)))
        
