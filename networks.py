@@ -92,6 +92,7 @@ class QuestionEmbeddingNet:
             '''
             return ques_embed
             
+
 class PatchGenerator:
     def __init__(self, batch_size, use_peepholes = True, is_bnorm = True, final_feat_size = 1024, activation_fn = tf.tanh):
         self.lr_img_size = [32, 32]
@@ -127,8 +128,8 @@ class PatchGenerator:
                                              rates = [1, 1, 1, 1 ], padding = 'SAME')
             patches = tf.reshape(patches, [-1] + [self.batch_size] + self.patch_size + [3])
             print('Extracted patches shape ==> {}'.format(patches.get_shape().as_list()))
-            next_patch_idx = tf.constant(128, shape = (self.batch_size, ), 
-                                         dtype = tf.int32)
+            next_patch_idx = tf.constant(128, shape = (self.batch_size, ), dtype = tf.int32)
+
             print('next_patch_idx_shape ==> {}'.format(next_patch_idx.get_shape().as_list()))
             lr_img = tf.image.resize_images(input_img, size = self.lr_img_size, method=tf.image.ResizeMethod.BICUBIC)
             lr_img_code =  self.conv_net(lr_img, 0, is_training = is_train, name = 'lr_img_conv_net')
@@ -139,6 +140,7 @@ class PatchGenerator:
             batch_id = tf.range(0, self.batch_size, delta = 1, dtype = tf.int32)
             print('batch_id shape ==> {}'.format(batch_id.get_shape().as_list()))
             patches_lst = []
+
             with tf.variable_scope('lstm_layer'):
                 for i in range(self.num_lstm_unroll):
                     index = tf.stack([next_patch_idx, batch_id], axis = 1)
@@ -199,6 +201,7 @@ class PatchGenerator:
                                                  scope = 'img_embed_reduce_W')
                 
             return final_img_feat, loss
+
             
     def deconv_net(self, input_code, i, is_training = True, name = 'deconvnet'):
         if i==0:
