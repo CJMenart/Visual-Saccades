@@ -129,14 +129,14 @@ print('')
 
 img_shape = [256, 256, 3]
 print('{} Writing tfrecord file for validation data {}'.format(temp, temp))
-N = 500#len(images_val_path)
-out_filepath = 'data/val_data_small.tfrecords'
+N = len(images_val_path)
+out_filepath = 'data/val_data.tfrecords'
 if os.path.exists(out_filepath):
     os.unlink(out_filepath)
 out_file = tf.python_io.TFRecordWriter(out_filepath)
 start = timeit.default_timer()
 for i in range(N):
-    img_path = os.path.join('data', images_val_path[i])
+    img_path = os.path.join('/fs/project/PAS1315/VQA/Images/', images_val_path[i])
     img = imageio.imread(img_path) 
     if len(img.shape) == 2:
         print('Image {} is an greyscale image. Converted to RGB. Image shape ==> {}'.format(i+1, img.shape))
@@ -159,8 +159,8 @@ print('{} Done writing tfrecord file for validation data. Time = {:.2f} s. {}'.f
 print('')
 
 print('{} Writing tfrecord file for training data {}'.format(temp, temp))
-N = 3000#len(images_train_path)
-out_filepath = 'data/train_data_small.tfrecords'
+N = len(images_train_path)
+out_filepath = 'data/train_data.tfrecords'
 if os.path.exists(out_filepath):
     os.unlink(out_filepath)
 out_file = tf.python_io.TFRecordWriter(out_filepath)
@@ -169,14 +169,11 @@ sum_stats = np.zeros(img_shape)
 sum_2_stats = np.zeros(img_shape)
 count = 0
 for i in range(N):
-    img_path = os.path.join('data', images_train_path[i])
+    img_path = os.path.join('/fs/project/PAS1315/VQA/Images/', images_train_path[i])
     img = imageio.imread(img_path)
     if len(img.shape) == 2:
         print('Image {} is a greyscale image. Converted to RGB. Image shape ==> {}'.format(i+1, img.shape))
         img = np.stack([img, img, img], axis = 2)
-    if len(img.shape) is not in [2, 3]:
-        print('Corrupted Image skipping it')
-        continue
     img = resize(img, img_shape[:2], order = 3)
     img = img.astype(np.float32)
     sum_stats += img
@@ -199,3 +196,4 @@ out_file.close()
 end = timeit.default_timer()
 print('{} Done writing tfrecord file for Training data. Time = {:.2f} s. {}'.format(temp, end - start, temp))
 print('')
+
