@@ -4,8 +4,10 @@ from ops import *
 import tensorflow as tf
 import numpy as np
 from ops import *
+from helpers import *
 from tensorflow.contrib.layers import fully_connected
 import sys
+import eyeball
 
 class QuestionEmbeddingNet:
     def __init__(self, lstm_layer_size, num_lstm_layer, final_feat_size = 1024, activation_fn = tf.tanh,  
@@ -133,9 +135,12 @@ class PatchGenerator:
             print('next_patch_idx_shape ==> {}'.format(next_patch_idx.get_shape().as_list()))
             lr_img = tf.image.resize_images(input_img, size = self.lr_img_size, method=tf.image.ResizeMethod.BICUBIC)
             lr_img_code =  self.conv_net(lr_img, 0, is_training = is_train, name = 'lr_img_conv_net')
+            #Can replace above line with:
+            #lr_img_code = eyeball.peripheral(input_img,'vgg16_weights.npz')
             lr_img_code = tf.reshape(lr_img_code, [self.batch_size, -1])
+                     
+            self.stacked_LSTM = tf.nn.rnn_cell.MultiRNNCell(self.LSTMs)
          
-            #self.stacked_LSTM = tf.nn.rnn_cell.MultiRNNCell(self.LSTMs)
             states = self.stacked_LSTM.zero_state(self.batch_size, tf.float32)
             batch_id = tf.range(0, self.batch_size, delta = 1, dtype = tf.int32)
             print('batch_id shape ==> {}'.format(batch_id.get_shape().as_list()))
@@ -152,6 +157,9 @@ class PatchGenerator:
                                                            is_training = is_train,
                                                            name = 'patch_conv_net'),
                                              [self.batch_size, -1])
+                    #can replace above line with:
+                    #patch_input = foveal(selection,lambda x:self.batch_norm(x, is_train = is_training))
+                    #patch_input = tf.reshape(patch_input,[self.batch_size,-1])
                     
                     
                     inputs = tf.concat([lr_img_code,
