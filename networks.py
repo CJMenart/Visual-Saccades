@@ -136,9 +136,9 @@ class PatchGenerator:
             lr_img = tf.image.resize_images(input_img, size = self.lr_img_size, method=tf.image.ResizeMethod.BICUBIC)
             lr_img_code =  self.conv_net(lr_img, 0, is_training = is_train, name = 'lr_img_conv_net')
             #Can replace above line with:
-			#lr_img_code = eyeball.peripheral(input_img,'vgg16_weights.npz')
-			lr_img_code = tf.reshape(lr_img_code, [self.batch_size, -1])
-					 
+            #lr_img_code = eyeball.peripheral(input_img,'vgg16_weights.npz')
+            lr_img_code = tf.reshape(lr_img_code, [self.batch_size, -1])
+                     
             self.stacked_LSTM = tf.nn.rnn_cell.MultiRNNCell(self.LSTMs)
          
             states = self.stacked_LSTM.zero_state(self.batch_size, tf.float32)
@@ -158,10 +158,10 @@ class PatchGenerator:
                                                            name = 'patch_conv_net'),
                                              [self.batch_size, -1])
                     #can replace above line with:
-					#patch_input = foveal(selection,lambda x:self.batch_norm(x, is_train = is_training))
-					#patch_input = tf.reshape(patch_input,[self.batch_size,-1])
+                    #patch_input = foveal(selection,lambda x:self.batch_norm(x, is_train = is_training))
+                    #patch_input = tf.reshape(patch_input,[self.batch_size,-1])
                     
-					
+                    
                     inputs = tf.concat([lr_img_code,
                                        ques_embed,
                                        patch_input],
