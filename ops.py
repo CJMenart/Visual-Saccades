@@ -80,7 +80,8 @@ def histogram_summary(name, x):
         summ = tf.histogram_summary(name, x)
     return summ
 def leakyrelu(x, alpha=0.3, name='lrelu'):
-    return tf.maximum(x, alpha * x, name=name)
+    with tf.name_scope(name):
+        return tf.maximum(x, alpha * x, name=name)
 def downconv(x, output_dim, k=[5, 5], pool=[2, 2], name='downconv'):
     """ Downsampled convolution 2d """
     w_init = xavier_initializer()

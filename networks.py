@@ -12,7 +12,7 @@ class QuestionEmbeddingNet:
                  use_peepholes = True, is_bnorm = True, name = 'ques_embed'):
         self.name = name
         self.lstm_layer_size = lstm_layer_size
-        self.num_lstm_layer = 1
+        self.num_lstm_layer = 2
         self.use_peepholes = use_peepholes
         self.LSTMs = []
         self.is_bnorm = is_bnorm
@@ -76,7 +76,7 @@ class QuestionEmbeddingNet:
                 concat_list.append(states[i].h)
             ques_embed = tf.concat(concat_list, axis = 1)
             print('ques_embed => {}'.format(ques_embed.get_shape().as_list()))
-            '''
+            
             if self.is_bnorm:     
                 with tf.variable_scope('ques_embed_reduce_W'):
                     final_ques_feat = affine_layer(ques_embed, self.final_feat_size)
@@ -89,16 +89,16 @@ class QuestionEmbeddingNet:
                                                   self.final_feat_size, 
                                                   self.activation_fn,
                                                   scope = 'ques_embed_reduce_W')
-            '''
-            return ques_embed
+           
+            return final_ques_feat
             
 
 class PatchGenerator:
     def __init__(self, batch_size, use_peepholes = True, is_bnorm = True, final_feat_size = 1024, activation_fn = tf.tanh):
         self.lr_img_size = [32, 32]
         self.patch_size = self.lr_img_size
-        self.lstm_layer_size = 1024
-        self.num_lstm_layers = 1
+        self.lstm_layer_size = 3072
+        self.num_lstm_layers = 2
         self.batch_size = batch_size
         self.is_bnorm = is_bnorm
         self.LSTMs = []
@@ -160,6 +160,18 @@ class PatchGenerator:
                                        axis = 1)
                     
                     output, states = self.stacked_LSTM(inputs, states)
+                    if self.is_bnorm:     
+                        with tf.variable_scope('img_lstm_reduce_W'):
+                            output = affine_layer(output, 1024)
+                            output = self.batch_norm(output, is_train)
+                            output = self.activation_fn(output)
+
+                    else:
+
+                        output = fully_connected(output, 
+                                                         1024, 
+                                                         self.activation_fn,
+                                                         scope = 'img_lstm_reduce_W')
                     output_patch = self.deconv_net(output, i, is_training = is_train)
                     patches_lst.append(output_patch)
                     if i == 0:
@@ -185,7 +197,7 @@ class PatchGenerator:
                     concat_list.append(states[i].c)
                     concat_list.append(states[i].h)
                 img_embed = tf.concat(concat_list, axis = 1)
-                print('ques_embed => {}'.format(img_embed.get_shape().as_list()))
+                print('img_embed => {}'.format(img_embed.get_shape().as_list()))
 
             if self.is_bnorm:     
                 with tf.variable_scope('img_embed_reduce_W'):
