@@ -199,7 +199,10 @@ class LSTM_DNN(Model):
         with tf.name_scope('cross_entropy_loss'):
             ce_loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits = self.out_logit[idx], 
                                                               labels = self.ans[idx]))
-            loss =  ce_loss + (self.patch_loss_lambda * patch_loss)
+            if self.feat_join == 'ques':
+                loss = ce_loss
+            else:
+                loss =  ce_loss + (self.patch_loss_lambda * patch_loss)
             self.ce_loss.append(ce_loss)
             self.loss.append(loss)
        
