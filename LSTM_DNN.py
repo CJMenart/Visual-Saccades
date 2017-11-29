@@ -33,6 +33,7 @@ class LSTM_DNN(Model):
         self.save_path = args.save_dir
         self.results_path = args.result_path
         self.is_bnorm = args.is_bnorm
+        self.learn_embed = args.learn_embed
         self.feat_join = args.feat_join
         self.tfrecords_path = args.tfrecords_path
         self.train_data_path = 'data/train_data.tfrecords'
@@ -54,7 +55,8 @@ class LSTM_DNN(Model):
         self.ques_embed_net = QuestionEmbeddingNet(self.lstm_layer_size, 
                                                    self.num_lstm_layer, 
                                                    use_peepholes = self.use_peepholes, 
-                                                   is_bnorm = self.is_bnorm, 
+                                                   is_bnorm = self.is_bnorm,
+                                                   learn_embed = self.learn_embed,
                                                    final_feat_size = self.final_feat_size)
                                                    
         self.patch_generator = PatchGenerator(self.batch_size, 
@@ -79,13 +81,14 @@ class LSTM_DNN(Model):
                     with tf.name_scope("device_%s" % idx):
                         with variables_on_first_device(devices[0]):
                             self.build_model_single_gpu(idx, args)
-                            grads = opt.compute_gradients(self.loss[-1],
-                                                              var_list=self.vars)
-                           
-                            for grad in grads:
-                                if grad[0] == None:
-                                    print(grad[1].name)
-                            
+                            if self.feat_join == 'ques':
+                                var_list = self.ques_vars + self.mm_vars
+                            else:
+                                if self.learn_embed == True:
+                                    var_list = self.img_vars + self.ques_vars + self.mm_vars
+                                else:
+                                    var_list = self.img_vars + self.mm_vars
+                            grads = opt.compute_gradients(self.loss[-1], var_list=var_list)
                             all_grads.append(grads)
                             tf.get_variable_scope().reuse_variables()
             avg_grads = average_gradients(all_grads)
@@ -221,12 +224,31 @@ class LSTM_DNN(Model):
         #sys.exit()   
     def get_vars(self):
         vars1 = tf.trainable_variables()
-        self.vars_dict = {}
+        self.ques_vars_dict = {}
+        self.img_vars_dict = {}
+        self.mm_vars_dict = {}
         for var in vars1:
-            print(var.name)
-            self.vars_dict[var.name] = var
-        self.vars = self.vars_dict.values()
-             
+            if 'ques_embed' in var.name:
+                self.ques_vars_dict[var.name] = var
+            elif 'img_embed' in var.name:
+                self.img_vars_dict[var.name] = var
+            elif 'multi_modal' in var.name:
+                self.mm_vars_dict[var.name] = var
+        self.ques_vars = self.ques_vars_dict.values()
+        self.img_vars = self.img_vars_dict.values()
+        self.mm_vars = self.mm_vars_dict.values()
+        print('{} printing question embedding variables {}'.format('*'*20,'*'*20))
+        for name in self.ques_vars_dict.keys():
+            print(name)
+        print()
+        print('{} printing image embedding variables {}'.format('*'*20,'*'*20))
+        for name in self.img_vars_dict.keys():
+            print(name)
+        print()
+        print('{} printing molti modal variables {}'.format('*'*20,'*'*20))
+        for name in self.mm_vars_dict.keys():
+            print(name)
+        print()
     def merge_summaries(self):
         with tf.name_scope('summaries'):
             self.loss_summ = []
@@ -238,21 +260,41 @@ class LSTM_DNN(Model):
             self.patch_loss_summ = []
             for idx, loss in enumerate(self.patch_loss):
                 self.patch_loss_summ.append(scalar_summary('device' + str(idx) + '/patch_loss_summ', loss))
-            self.patch_summ = []  
-            for idx, patch_lst in enumerate(self.patch_generator.patches_lst[1:]):
+            self.inp_patch_summ = []  
+            for idx, patch_lst in enumerate(self.patch_generator.inp_patches_lst[1:]):
                 for idx1, patch in enumerate(patch_lst):
-                    self.patch_loss_summ.append(tf.summary.image( 'device_{}/patch_summ_{}'.format(idx, idx1), patch))
-            self.vars_summ = []
+                    self.patch_loss_summ.append(tf.summary.image( 'device_{}/inp_patch_summ_{}'.format(idx, idx1), patch))
+            self.out_patch_summ = []  
+            for idx, patch_lst in enumerate(self.patch_generator.out_patches_lst[1:]):
+                for idx1, patch in enumerate(patch_lst):
+                    self.patch_loss_summ.append(tf.summary.image( 'device_{}/out_patch_summ_{}'.format(idx, idx1), patch))
+            self.ques_vars_summ = []
             if self.is_vars_summ:
-                for var in self.vars:
-                    self.vars_summ.append(histogram_summary(var.name.replace(':','_'), var))
+                for var in self.ques_vars:
+                    self.ques_vars_summ.append(histogram_summary(var.name.replace(':','_'), var))
+            self.img_vars_summ = []
+            if self.is_vars_summ:
+                for var in self.img_vars:
+                    self.img_vars_summ.append(histogram_summary(var.name.replace(':','_'), var))
+            self.mm_vars_summ = []
+            if self.is_vars_summ:
+                for var in self.mm_vars:
+                    self.mm_vars_summ.append(histogram_summary(var.name.replace(':','_'), var))
             self.grads_summ = []
             if self.is_grads_summ:
                 for grad, var in self.avg_grads:
                     self.grads_summ.append(histogram_summary(var.name.replace(':','_') + '/gradients', grad))
             self.val_accuracy_summ = scalar_summary('val_accuracy',  self.val_accuracy)
-            summ_lst = self.vars_summ + self.grads_summ + \
-            self.loss_summ + self.ce_loss_summ + self.patch_loss_summ + self.patch_summ
+            self.val_inp_patch_summ = []
+            for idx, patch in enumerate(self.patch_generator.inp_patches_lst[0]):
+                self.val_inp_patch_summ.append(tf.summary.image( 'device_{}/val_inp_patch_summ_{}'.format(idx, idx1), patch))
+                
+            self.val_out_patch_summ = []
+            for idx, patch in enumerate(self.patch_generator.out_patches_lst[0]):
+                self.val_out_patch_summ.append(tf.summary.image( 'device_{}/val_out_patch_summ_{}'.format(idx, idx1), patch))
+
+            summ_lst = self.ques_vars_summ + self.img_vars_summ + self.mm_vars_summ + self.grads_summ + \
+            self.loss_summ + self.ce_loss_summ + self.patch_loss_summ + self.inp_patch_summ + self.out_patch_summ
             if self.combine_feature.is_bnorm:       
                 self.pop_mean_summ = []
                 self.pop_var_summ = []

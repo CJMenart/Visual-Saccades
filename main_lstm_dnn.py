@@ -28,7 +28,8 @@ VOCAB_LIST = 'data/preprocessed/vocab_list.txt'
 LSTM_KEEP_PROB = 0.5
 HIDDEN_KEEP_PROB = 0.8
 USE_PEEPHOLES = True
-FEAT_JOIN = 'mul'
+FEAT_JOIN = 'ques'
+LEARN_EMBED = False
 def get_arguments():
     def _str_to_bool(s):
         """Convert string to bool (in argparse context)."""
@@ -85,10 +86,10 @@ def get_arguments():
                         'probability in layers of lstm net. Default: ' + str(LSTM_KEEP_PROB) + '.')
     parser.add_argument('--use_peepholes', type=_str_to_bool, default=USE_PEEPHOLES, help='Whether to  '
                         'use peepholes in Lstm. Default: ' + str(USE_PEEPHOLES) + '.')
-    parser.add_argument('--feat_join', type=str, default=FEAT_JOIN, choices = ['mul', 'add','concat', 
-                                                                               'outer', 'outer_conv'], 
+    parser.add_argument('--feat_join', type=str, default=FEAT_JOIN, choices = ['mul', 'add','concat', 'ques', 'img'], 
                         help='How to join the image and question features. Default: ' + str(RESULT_PATH) + '.')
-    
+    parser.add_argument('--learn_embed', type=_str_to_bool, default=LEARN_EMBED, 
+                        help='Wether to learn question embedding or not. Default: ' + str(LEARN_EMBED) + '.')
     args = parser.parse_args()
     return args
 
