@@ -123,10 +123,12 @@ class PatchGenerator:
             self.LSTMs_drop = []
             for i in range(self.num_lstm_layers):
                 self.LSTMs_drop.append(tf.nn.rnn_cell.DropoutWrapper(self.LSTMs[i], 
-                                                            output_keep_prob = keep_prob))
+                                                            output_keep_prob = 0.5))
             self.stacked_LSTM = tf.nn.rnn_cell.MultiRNNCell(self.LSTMs_drop)
+            keep_prob = 0.8
         else:
             self.stacked_LSTM = tf.nn.rnn_cell.MultiRNNCell(self.LSTMs)
+            keep_prob = 1.
         with tf.variable_scope('img_embed'):
             patches = tf.extract_image_patches(input_img, ksizes = [1] + self.patch_size + [1], 
                                              strides = [1, 16, 16, 1], 
@@ -144,7 +146,6 @@ class PatchGenerator:
             print('ques_embed => {}'.format(ques_embed.get_shape().as_list()))
             ques_ch = tf.reshape(ques_embed, [-1, 32, 32, 1])
             print('ques_ch => {}'.format(ques_ch.get_shape().as_list()))
-            self.stacked_LSTM = tf.nn.rnn_cell.MultiRNNCell(self.LSTMs)
          
             states = self.stacked_LSTM.zero_state(self.batch_size, tf.float32)
             batch_id = tf.range(0, self.batch_size, delta = 1, dtype = tf.int32)
@@ -160,12 +161,14 @@ class PatchGenerator:
                     if not i:
                         print('selection => {}'.format(selection.get_shape().as_list()))
                     conv_net_input = tf.concat([selection, output_patch, lr_img, ques_ch], axis = -1)
+                    conv_net_input = tf.nn.dropout(conv_net_input, keep_prob = keep_prob)
                     if not i:
                         print('conv_net_input => {}'.format(conv_net_input.get_shape().as_list()))
                     if i ==1:
                         tf.get_variable_scope().reuse_variables()
                     lstm_input = tf.reshape(self.conv_net(conv_net_input, i,
                                                            is_training = is_train,
+                                                           keep_prob = keep_prob, 
                                                            name = 'patch_conv_net'),
                                              [self.batch_size, -1])
                     if not i:
@@ -176,23 +179,10 @@ class PatchGenerator:
                     
                     
                     output, states = self.stacked_LSTM(lstm_input, states)
-                    '''
-                    if self.is_bnorm:     
-                        with tf.variable_scope('img_lstm_reduce_W'):
-                            output = affine_layer(output, 1024)
-                            output = self.batch_norm(output, is_train)
-                            output = self.activation_fn(output)
-
-                    else:
-
-                        output = fully_connected(output, 
-                                                         1024, 
-                                                         self.activation_fn,
-                                                         scope = 'img_lstm_reduce_W')
-                    '''
+                    
                     output_ch = tf.reshape(output, [self.batch_size, 2, 2, 512])
                     deconv_net_input = output_ch
-                    output_patch = self.deconv_net(deconv_net_input, i, is_training = is_train)
+                    output_patch = self.deconv_net(deconv_net_input, i, is_training = is_train, keep_prob = keep_prob)
                     if not i:
                         print('output_ch => {}'.format(output_ch.get_shape().as_list()))
                         print('deconv_net_input => {}'.format(deconv_net_input.get_shape().as_list()))
@@ -237,7 +227,7 @@ class PatchGenerator:
             return final_img_feat, loss
 
             
-    def deconv_net(self, input_code, i, is_training = True, name = 'deconvnet'):
+    def deconv_net(self, input_code, i, is_training = True, name = 'deconvnet', keep_prob = 0.8):
         if i==0:
             print('*'*20 + '  Building Deconvolutional network for patches  ' + '*'*20)
         with tf.variable_scope(name):
@@ -245,6 +235,7 @@ class PatchGenerator:
             if self.is_bnorm:
                 out1 = self.batch_norm(out1, is_train=is_training, name = 'bnorm1')
             out1 = leakyrelu(out1)
+            out1 = tf.nn.dropout(out1, keep_prob = keep_prob)
             if i==0:
                 print('First Layer: Input => ' + str(input_code.get_shape().as_list()) + ', Output => '\
                       + str(out1.get_shape().as_list()))
@@ -253,6 +244,7 @@ class PatchGenerator:
             if self.is_bnorm:
                 out2 =  self.batch_norm(out2, is_train=is_training, name = 'bnorm2')
             out2 = leakyrelu(out2)
+            out2 = tf.nn.dropout(out2, keep_prob = keep_prob)
             if i==0:
                 print('Second Layer: Input => ' + str(out1.get_shape().as_list()) + ', Output => '\
                       + str(out2.get_shape().as_list()))
@@ -261,6 +253,7 @@ class PatchGenerator:
             if self.is_bnorm:
                 out3 = self.batch_norm(out3, is_train=is_training, name = 'bnorm3')
             out3 = leakyrelu(out3)
+            out3 = tf.nn.dropout(out3, keep_prob = keep_prob)
             if i==0:
                 print('Third Layer: Input => ' + str(out2.get_shape().as_list()) + ', Output => '\
                       + str(out3.get_shape().as_list()))
@@ -269,13 +262,14 @@ class PatchGenerator:
             if self.is_bnorm:
                 out4 = self.batch_norm(out4, is_train=is_training, name = 'bnorm4')
             out4 = tf.tanh(out4)
+            out4 = tf.nn.dropout(out4, keep_prob = keep_prob)
             if i==0:
                 print('Fourth Layer: Input => ' + str(out3.get_shape().as_list()) + ', Output => '\
                       + str(out4.get_shape().as_list()))
 
             return out4
         
-    def conv_net(self, input_code, i, is_training = True, name = 'conv_net'):
+    def conv_net(self, input_code, i, is_training = True, name = 'conv_net', keep_prob = 0.8):
         if i==1:
             print('*'*20 + '  Building convolutional network for patches  ' + '*'*20)
         with tf.variable_scope(name):
@@ -283,6 +277,7 @@ class PatchGenerator:
             if self.is_bnorm:
                 out1 = self.batch_norm(out1, is_train = is_training, name ='bnorm1')
             out1 = leakyrelu(out1)
+            out1 = tf.nn.dropout(out1, keep_prob = keep_prob)
             if i==1:
                 print('First Layer: Input => ' + str(input_code.get_shape().as_list()) + ', Output => '\
                       + str(out1.get_shape().as_list()))
@@ -291,6 +286,7 @@ class PatchGenerator:
             if self.is_bnorm:
                 out2 = self.batch_norm(out2, is_train = is_training, name ='bnorm2')
             out2 = leakyrelu(out2)
+            out2 = tf.nn.dropout(out2, keep_prob = keep_prob)
             if i==1:
                 print('Second Layer: Input => ' + str(out1.get_shape().as_list()) + ', Output => '\
                       + str(out2.get_shape().as_list()))
@@ -299,6 +295,7 @@ class PatchGenerator:
             if self.is_bnorm:
                 out3 = self.batch_norm(out3, is_train = is_training, name ='bnorm3')
             out3 = leakyrelu(out3)
+            out3 = tf.nn.dropout(out3, keep_prob = keep_prob)
             if i==1:
                 print('Third Layer: Input => ' + str(out2.get_shape().as_list()) + ', Output => '\
                       + str(out3.get_shape().as_list()))
@@ -307,6 +304,7 @@ class PatchGenerator:
             if self.is_bnorm:
                 out4 = self.batch_norm(out4, is_train = is_training, name ='bnorm4')
             out4 = leakyrelu(out4)
+            out4 = tf.nn.dropout(out4, keep_prob = keep_prob)
             if i==1:
                 print('Fourth Layer: Input => ' + str(out3.get_shape().as_list()) + ', Output => '\
                       + str(out4.get_shape().as_list()))
@@ -322,14 +320,15 @@ class ImagePlusQuesFeatureNet:
         self.is_bnorm = is_bnorm
         self.batch_norm = BatchNorm()
         self.feat_join = feat_join
-    def __call__(self, img_inp, ques_inp, is_train = True, keep_prob = 0.5):
+    def __call__(self, img_inp, ques_inp, is_train = True, keep_prob = 0.8):
         with tf.variable_scope('multi_modal'):
             if is_train:
-                img_inp_drop = tf.nn.dropout(img_inp, keep_prob = keep_prob)
-                ques_inp_drop = tf.nn.dropout(ques_inp, keep_prob = keep_prob)
+                keep_prob = keep_prob
             else:
-                img_inp_drop = img_inp
-                ques_inp_drop = ques_inp
+                keep_prob = 1.
+            
+            img_inp_drop = tf.nn.dropout(img_inp, keep_prob = keep_prob)
+            ques_inp_drop = tf.nn.dropout(ques_inp, keep_prob = keep_prob)
            
             if self.feat_join == 'mul':
                 final_feat = tf.multiply(img_inp_drop, ques_inp_drop)
