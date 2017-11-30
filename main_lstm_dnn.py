@@ -29,7 +29,7 @@ LSTM_KEEP_PROB = 0.5
 HIDDEN_KEEP_PROB = 0.8
 USE_PEEPHOLES = True
 FEAT_JOIN = 'ques'
-LEARN_EMBED = False
+LEARN_EMBED = True
 def get_arguments():
     def _str_to_bool(s):
         """Convert string to bool (in argparse context)."""

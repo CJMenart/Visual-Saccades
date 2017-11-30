@@ -37,7 +37,7 @@ class LSTM_DNN(Model):
         self.feat_join = args.feat_join
         self.tfrecords_path = args.tfrecords_path
         self.train_data_path = 'data/train_data.tfrecords'
-        self.val_data_path = 'data/val_data.tfrecords'
+        self.val_data_path = 'data/val_data_small.tfrecords'
         self.train_stats_path = 'data/train_stats.npz'
         self.labelencoder = joblib.load(args.lbl_enc_file)
         
@@ -50,7 +50,7 @@ class LSTM_DNN(Model):
         self.patch_loss_lambda = 1.0
         self.is_vars_summ = True
         self.is_grads_summ = True
-        self.optimizer = tf.train.AdamOptimizer(self.lr)
+        self.d_opt = tf.train.AdamOptimizer(self.lr)
         self.use_peepholes = args.use_peepholes
         self.ques_embed_net = QuestionEmbeddingNet(self.lstm_layer_size, 
                                                    self.num_lstm_layer, 
@@ -73,27 +73,39 @@ class LSTM_DNN(Model):
         
        
     def build_model(self, devices, args):
+        all_img_grads = []
+        all_ques_grads = []
+        all_mm_grads = []
         all_grads = []
-        opt = self.optimizer
+        img_opt = tf.train.AdamOptimizer(self.lr)
+        ques_opt = tf.train.AdamOptimizer(self.lr)
+        mm_opt = tf.train.AdamOptimizer(self.lr)
         with tf.variable_scope(self.name):
             for idx, device in enumerate(devices):
                 with tf.device("/%s" % device):
                     with tf.name_scope("device_%s" % idx):
                         with variables_on_first_device(devices[0]):
                             self.build_model_single_gpu(idx, args)
-                            if self.feat_join == 'ques':
-                                var_list = self.ques_vars + self.mm_vars
-                            else:
-                                if self.learn_embed == True:
-                                    var_list = self.img_vars + self.ques_vars + self.mm_vars
-                                else:
-                                    var_list = self.img_vars + self.mm_vars
-                            grads = opt.compute_gradients(self.loss[-1], var_list=var_list)
-                            all_grads.append(grads)
+                            img_grads = img_opt.compute_gradients(self.loss[-1], var_list=self.img_vars)
+                            ques_grads = ques_opt.compute_gradients(self.loss[-1], var_list=self.ques_vars)
+                            mm_grads = mm_opt.compute_gradients(self.loss[-1], var_list=self.mm_vars)
+                            #print('img_grads => {}'.format(img_grads))
+                            #print('ques_grads => {}'.format(ques_grads))
+                            #print('mm_grads => {}'.format(mm_grads))
+                            #sys.exit()
+                            all_img_grads.append(img_grads)
+                            all_ques_grads.append(ques_grads)
+                            all_mm_grads.append(mm_grads)
                             tf.get_variable_scope().reuse_variables()
-            avg_grads = average_gradients(all_grads)
-            self.avg_grads = avg_grads
-        self.opt = opt.apply_gradients(avg_grads)
+            avg_img_grads = average_gradients(all_img_grads)
+            self.avg_img_grads = avg_img_grads
+            avg_ques_grads = average_gradients(all_ques_grads)
+            self.avg_ques_grads = avg_ques_grads
+            avg_mm_grads = average_gradients(all_mm_grads)
+            self.avg_mm_grads = avg_mm_grads
+        self.img_opt = img_opt.apply_gradients(avg_img_grads)
+        self.ques_opt = ques_opt.apply_gradients(avg_ques_grads)
+        self.mm_opt = mm_opt.apply_gradients(avg_mm_grads)
      
         
     def build_model_single_gpu(self, idx, args):
@@ -150,6 +162,7 @@ class LSTM_DNN(Model):
      
         if idx == 0:
             with tf.name_scope('Test_Model'):
+                
                 self.ques_embed_test = self.ques_embed_net(self.ques[idx], self.ques_len[idx],  
                                                       self.vocab_size, 
                                                       self.word_embed_size,
@@ -284,9 +297,9 @@ class LSTM_DNN(Model):
                 for var in self.mm_vars:
                     self.mm_vars_summ.append(histogram_summary(var.name.replace(':','_'), var))
             self.grads_summ = []
-            if self.is_grads_summ:
-                for grad, var in self.avg_grads:
-                    self.grads_summ.append(histogram_summary(var.name.replace(':','_') + '/gradients', grad))
+            #if self.is_grads_summ:
+                #for grad, var in self.avg_grads:
+                    #self.grads_summ.append(histogram_summary(var.name.replace(':','_') + '/gradients', grad))
             self.val_accuracy_summ = scalar_summary('val_accuracy',  self.val_accuracy)
             self.val_inp_patch_summ = []
             for idx, patch in enumerate(self.patch_generator.inp_patches_lst[0]):
@@ -296,7 +309,7 @@ class LSTM_DNN(Model):
             for idx, patch in enumerate(self.patch_generator.out_patches_lst[0]):
                 self.val_out_patch_summ.append(tf.summary.image( 'device_{}/val_out_patch_summ_{}'.format(idx, idx1), patch))
 
-            summ_lst = self.ques_vars_summ + self.img_vars_summ + self.mm_vars_summ + self.grads_summ + \
+            summ_lst = self.ques_vars_summ + self.img_vars_summ + self.mm_vars_summ + \
             self.loss_summ + self.ce_loss_summ + self.patch_loss_summ + self.inp_patch_summ + self.out_patch_summ
             if self.combine_feature.is_bnorm:       
                 self.pop_mean_summ = []
@@ -327,7 +340,14 @@ class LSTM_DNN(Model):
     def train(self, model = None):
         devices = self.devices
         # change here to optimize in different ways
-        opt = self.opt
+        if self.feat_join == 'ques':
+            opt_lst = [self.ques_opt, self.mm_opt]
+        else:
+            if self.learn_embed:
+                opt_lst = [self.img_opt, self.ques_opt, self.mm_opt]
+            else:
+                opt_lst = [self.img_opt, self.mm_opt]
+        #opt = self.opt
         num_devices = len(devices)
         print('num_devices', num_devices)
         sess = self.sess
@@ -404,7 +424,8 @@ class LSTM_DNN(Model):
                     
                     
                 else:
-                    _, loss = sess.run([opt, self.loss])
+                    out = sess.run(opt_lst + [self.loss])
+                    loss = out[-1]
                     losses.append(loss)    
                     batch_idx += num_devices
                     counter += num_devices

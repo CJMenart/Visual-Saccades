@@ -30,7 +30,7 @@ class QuestionEmbeddingNet:
     def __call__(self, ques_inp, ques_len_inp, vocab_size, word_embed_size, max_ques_length, batch_size, 
                  is_train = True, keep_prob = 0.5,
                  scope = 'ques_embed'):
-        if is_train:
+        if is_train and self.learn_embed:
             self.LSTMs_drop = []
             for i in range(self.num_lstm_layer):
                 self.LSTMs_drop.append(tf.nn.rnn_cell.DropoutWrapper(self.LSTMs[i], 
@@ -49,7 +49,10 @@ class QuestionEmbeddingNet:
             init_states = self.stacked_LSTM.zero_state(batch_size, tf.float32)
             inputs = []
             for i in range(max_ques_length):
-                inputs.append(tf.nn.embedding_lookup(self.ques_embed_W, ques_inp[:, i]))
+                temp = tf.nn.embedding_lookup(self.ques_embed_W, ques_inp[:, i])
+                if is_train and self.learn_embed:
+                    temp = tf.nn.dropout(temp, keep_prob = keep_prob)
+                inputs.append(temp)
             lstm_inputs = tf.stack(inputs, axis = 1)
             print('lstm_inputs => {}'.format(lstm_inputs.get_shape().as_list()))
             print('ques_len_inp => {}'.format(ques_len_inp.get_shape().as_list()))
@@ -79,6 +82,8 @@ class QuestionEmbeddingNet:
                 concat_list.append(states[i].h)
             ques_embed = tf.concat(concat_list, axis = 1)
             print('ques_embed => {}'.format(ques_embed.get_shape().as_list()))
+            if is_train and self.learn_embed:
+                ques_embed = tf.nn.dropout(ques_embed, keep_prob = 0.8)
            
             
             if self.is_bnorm:     
@@ -132,7 +137,7 @@ class PatchGenerator:
         with tf.variable_scope('img_embed'):
             patches = tf.extract_image_patches(input_img, ksizes = [1] + self.patch_size + [1], 
                                              strides = [1, 16, 16, 1], 
-                                             rates = [1, 1, 1, 1 ], padding = 'SAME')
+                                             rates = [1, 1, 1, 1 ], padding = 'VALID')
             patches = tf.reshape(patches, [-1] + [self.batch_size] + self.patch_size + [3])
             print('Extracted patches shape => {}'.format(patches.get_shape().as_list()))
             next_patch_idx = tf.constant(128, shape = (self.batch_size, ), dtype = tf.int32)
@@ -210,6 +215,8 @@ class PatchGenerator:
                     concat_list.append(states[i].h)
                 img_embed = tf.concat(concat_list, axis = 1)
                 print('img_embed => {}'.format(img_embed.get_shape().as_list()))
+                if is_train:
+                    img_embed = tf.nn.dropout(img_embed, keep_prob = keep_prob)
 
             if self.is_bnorm:     
                 with tf.variable_scope('img_embed_reduce_W'):
@@ -343,8 +350,8 @@ class ImagePlusQuesFeatureNet:
                 
             print('final_feat', final_feat.get_shape().as_list(), final_feat.dtype)
             #final_feat = final_img_feat
-            if is_train:
-                final_feat = tf.nn.dropout(final_feat, keep_prob = keep_prob)
+            
+            final_feat = tf.nn.dropout(final_feat, keep_prob = keep_prob)
             init = tf.random_uniform_initializer(-0.08, 0.08)
             if self.is_bnorm:
                 with tf.variable_scope('hidden0'):

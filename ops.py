@@ -40,10 +40,10 @@ def average_gradients(tower_grads):
             for g, _ in grad_and_vars:
 
                 # Add 0 dim to gradients to represent tower
-                '''
+                
                 if g is None:
                     g = tf.zeros_like(_)
-                '''
+                
                 expanded_g = tf.expand_dims(g, 0)
 
                 # Append on a 'tower' dimension that we will average over below
