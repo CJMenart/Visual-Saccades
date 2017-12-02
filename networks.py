@@ -34,7 +34,10 @@ class QuestionEmbeddingNet:
             self.LSTMs_drop = []
             for i in range(self.num_lstm_layer):
                 self.LSTMs_drop.append(tf.nn.rnn_cell.DropoutWrapper(self.LSTMs[i], 
-                                                            output_keep_prob = keep_prob))
+                                                                     output_keep_prob = keep_prob, 
+                                                            state_keep_prob = keep_prob, 
+							    variational_recurrent = True, 
+						    	    dtype = tf.float32))
             self.stacked_LSTM = tf.nn.rnn_cell.MultiRNNCell(self.LSTMs_drop)
         else:
             self.stacked_LSTM = tf.nn.rnn_cell.MultiRNNCell(self.LSTMs)
@@ -117,6 +120,7 @@ class PatchGenerator:
         self.inp_patches_lst = []
         self.final_feat_size = final_feat_size
         self.activation_fn = activation_fn
+        
         if is_bnorm:
             self.batch_norm = BatchNorm()
         for i in range(self.num_lstm_layers):
@@ -128,7 +132,10 @@ class PatchGenerator:
             self.LSTMs_drop = []
             for i in range(self.num_lstm_layers):
                 self.LSTMs_drop.append(tf.nn.rnn_cell.DropoutWrapper(self.LSTMs[i], 
-                                                            output_keep_prob = 0.5))
+                                                            output_keep_prob = 0.5, 
+                                                            state_keep_prob = 0.5, 
+                                                            variational_recurrent = True, 
+							    dtype = tf.float32))
             self.stacked_LSTM = tf.nn.rnn_cell.MultiRNNCell(self.LSTMs_drop)
             keep_prob = 0.8
         else:
@@ -136,11 +143,13 @@ class PatchGenerator:
             keep_prob = 1.
         with tf.variable_scope('img_embed'):
             patches = tf.extract_image_patches(input_img, ksizes = [1] + self.patch_size + [1], 
-                                             strides = [1, 16, 16, 1], 
+                                             strides = [1, 32, 32, 1], 
                                              rates = [1, 1, 1, 1 ], padding = 'VALID')
-            patches = tf.reshape(patches, [-1] + [self.batch_size] + self.patch_size + [3])
+            #patches = tf.reshape(patches, [-1] + [self.batch_size] + self.patch_size + [3])
+            patches = tf.reshape(patches, [self.batch_size] + [-1] + self.patch_size + [3])
+            
             print('Extracted patches shape => {}'.format(patches.get_shape().as_list()))
-            next_patch_idx = tf.constant(128, shape = (self.batch_size, ), dtype = tf.int32)
+            next_patch_idx = tf.constant(36, shape = (self.batch_size, ), dtype = tf.int32)
 
             print('next_patch_idx_shape => {}'.format(next_patch_idx.get_shape().as_list()))
             lr_img = tf.image.resize_images(input_img, size = self.lr_img_size, method=tf.image.ResizeMethod.BICUBIC)
@@ -153,14 +162,15 @@ class PatchGenerator:
             print('ques_ch => {}'.format(ques_ch.get_shape().as_list()))
          
             states = self.stacked_LSTM.zero_state(self.batch_size, tf.float32)
-            batch_id = tf.range(0, self.batch_size, delta = 1, dtype = tf.int32)
+            batch_id = tf.range(self.batch_size, delta = 1, dtype = tf.int32)
             print('batch_id shape => {}'.format(batch_id.get_shape().as_list()))
             out_patches_lst = []
             inp_patches_lst = []
             output_patch = tf.zeros(shape = (self.batch_size, 32, 32, 3))
+            selection_lst = []
             with tf.variable_scope('lstm_layer'):
                 for i in range(self.num_lstm_unroll):
-                    index = tf.stack([next_patch_idx, batch_id], axis = 1)
+                    index = tf.stack([batch_id, next_patch_idx], axis = 1)
                     selection = tf.gather_nd(patches, index)
                     inp_patches_lst.append(selection)
                     if not i:
@@ -188,27 +198,37 @@ class PatchGenerator:
                     output_ch = tf.reshape(output, [self.batch_size, 2, 2, 512])
                     deconv_net_input = output_ch
                     output_patch = self.deconv_net(deconv_net_input, i, is_training = is_train, keep_prob = keep_prob)
+                    
+                    out_patches_lst.append(output_patch)
+                    output_patch1 = tf.expand_dims(output_patch, axis = 1)
+                    output_patch1 = tf.tile(output_patch1, [1, patches.get_shape().as_list()[1], 1, 1, 1])
                     if not i:
                         print('output_ch => {}'.format(output_ch.get_shape().as_list()))
                         print('deconv_net_input => {}'.format(deconv_net_input.get_shape().as_list()))
                         print('output_patch => {}'.format(output_patch.get_shape().as_list()))
-                    out_patches_lst.append(output_patch)
-                    difference = tf.abs(output_patch - patches)
+                        print('output_patch1 => {}'.format(output_patch1.get_shape().as_list()))
+                    difference = tf.abs(patches - output_patch1)
                     
                     mean_diff = tf.reduce_mean(difference, [2, 3, 4])
-                    next_patch_idx = tf.argmin(mean_diff, output_type = tf.int32, axis = 0)
+                    next_patch_idx = tf.argmin(mean_diff, output_type = tf.int32, axis = 1)
                     if not i:
                         print('difference => {}'.format(difference.get_shape().as_list()))
                         print('mean_diff => {}'.format(mean_diff.get_shape().as_list()))
-                        print('next_patch_idx => {}'.format(next_patch_idx.get_shape().as_list())) 
+                        print('next_patch_idx => {}'.format(next_patch_idx.get_shape().as_list()))
+                    temp_patch_loss = tf.reduce_mean(tf.reduce_min(mean_diff, axis = 1))
+                    temp_diff_loss = 0
+                    for j in range(len(inp_patches_lst)):
+                        temp_diff_loss += tf.abs(tf.subtract(inp_patches_lst[i], output_patch))
+                    #temp_diff_loss = tf.clip_by_value(-1.*temp_diff_loss, clip_value_min = -5., clip_value_max = 0.)
+                    
                     if i == 0:
-                        loss = tf.reduce_mean(tf.reduce_min(mean_diff, axis = 0))
+                        patch_loss = temp_patch_loss
+                        diff_loss = temp_diff_loss
                     else:
-                        loss += tf.reduce_mean(tf.reduce_min(mean_diff, axis = 0))
+                        patch_loss += temp_patch_loss
+                        diff_loss += temp_diff_loss 
                         
-                self.out_patches_lst.append(out_patches_lst)
-                self.inp_patches_lst.append(inp_patches_lst)
-                # img_feature = tf.reshape(output_patch, [self.batch_size, -1])
+               
                 concat_list = []
                 for i in range(self.num_lstm_layers):
                     concat_list.append(states[i].c)
@@ -230,8 +250,10 @@ class PatchGenerator:
                                                  self.final_feat_size, 
                                                  self.activation_fn,
                                                  scope = 'img_embed_reduce_W')
-                
-            return final_img_feat, loss
+            diff_loss = -1*diff_loss / self.num_lstm_unroll
+            patch_loss = patch_loss / self.num_lstm_unroll
+            diff_loss = tf.clip_by_value(diff_loss, clip_value_min = -2., clip_value_max = 0.)
+            return final_img_feat, patch_loss,  diff_loss, lr_img, inp_patches_lst, out_patches_lst, patches
 
             
     def deconv_net(self, input_code, i, is_training = True, name = 'deconvnet', keep_prob = 0.8):
@@ -269,7 +291,7 @@ class PatchGenerator:
             if self.is_bnorm:
                 out4 = self.batch_norm(out4, is_train=is_training, name = 'bnorm4')
             out4 = tf.tanh(out4)
-            out4 = tf.nn.dropout(out4, keep_prob = keep_prob)
+            #out4 = tf.nn.dropout(out4, keep_prob = keep_prob)
             if i==0:
                 print('Fourth Layer: Input => ' + str(out3.get_shape().as_list()) + ', Output => '\
                       + str(out4.get_shape().as_list()))
@@ -311,7 +333,7 @@ class PatchGenerator:
             if self.is_bnorm:
                 out4 = self.batch_norm(out4, is_train = is_training, name ='bnorm4')
             out4 = leakyrelu(out4)
-            out4 = tf.nn.dropout(out4, keep_prob = keep_prob)
+            #out4 = tf.nn.dropout(out4, keep_prob = keep_prob)
             if i==1:
                 print('Fourth Layer: Input => ' + str(out3.get_shape().as_list()) + ', Output => '\
                       + str(out4.get_shape().as_list()))
@@ -338,7 +360,7 @@ class ImagePlusQuesFeatureNet:
             ques_inp_drop = tf.nn.dropout(ques_inp, keep_prob = keep_prob)
            
             if self.feat_join == 'mul':
-                final_feat = tf.multiply(img_inp_drop, ques_inp_drop)
+                final_feat = tf.multiply(img_inp_drop, ques_inp_drop) + img_inp_drop + ques_inp_drop
             elif self.feat_join == 'add':
                 final_feat = tf.add(img_inp_drop, ques_inp_drop)
             elif self.feat_join == 'concat':

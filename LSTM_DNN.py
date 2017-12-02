@@ -37,7 +37,7 @@ class LSTM_DNN(Model):
         self.feat_join = args.feat_join
         self.tfrecords_path = args.tfrecords_path
         self.train_data_path = 'data/train_data.tfrecords'
-        self.val_data_path = 'data/val_data_small.tfrecords'
+        self.val_data_path = 'data/val_data.tfrecords'
         self.train_stats_path = 'data/train_stats.npz'
         self.labelencoder = joblib.load(args.lbl_enc_file)
         
@@ -47,7 +47,9 @@ class LSTM_DNN(Model):
         self.lstm_keep_prob = tf.Variable(args.lstm_keep_prob, dtype = tf.float32, 
                                               trainable = False, 
                                               name = 'lstm_keep_prob')
+        self.ce_loss_lambda = 1.
         self.patch_loss_lambda = 1.0
+        self.diff_loss_lambda = 1.
         self.is_vars_summ = True
         self.is_grads_summ = True
         self.d_opt = tf.train.AdamOptimizer(self.lr)
@@ -111,6 +113,7 @@ class LSTM_DNN(Model):
     def build_model_single_gpu(self, idx, args):
         if idx == 0:
             self.img = []
+            self.img1 = []
             self.ques = []
             self.ques_len = []
             self.ans = []
@@ -121,6 +124,11 @@ class LSTM_DNN(Model):
             self.out_logit = []
             self.loss = []
             self.patch_loss = []
+            self.diff_loss = []
+            self.lr_img = []
+            self.inp_patches_lst = []
+            self.out_patches_lst = []
+            self.patches = []
             self.ce_loss = []
             tr_stats = np.load(self.train_stats_path)
             self.img_mean = tf.Variable(tr_stats['img_mean'].astype(np.float32), trainable = False)
@@ -145,6 +153,7 @@ class LSTM_DNN(Model):
                                         capacity=1000 + 3 * args.batch_size,
                                         allow_smaller_final_batch=False)
                 val_img = self.val_batch[0]
+                self.val_img1 = val_img
                 self.val_img = tf.divide(tf.subtract(val_img, self.img_mean), self.img_std)
                 self.val_ques = self.val_batch[1]
                 self.val_ques_len = self.val_batch[2]
@@ -153,6 +162,7 @@ class LSTM_DNN(Model):
         data = batch_data(self.train_data, args.batch_size)
         img = (data[0] - self.img_mean) / self.img_std
         self.img.append(img)
+        self.img1.append(data[0])
         self.ques.append(data[1])
         self.ques_len.append(data[2])
         self.ans.append(data[3])
@@ -163,7 +173,7 @@ class LSTM_DNN(Model):
         if idx == 0:
             with tf.name_scope('Test_Model'):
                 
-                self.ques_embed_test = self.ques_embed_net(self.ques[idx], self.ques_len[idx],  
+                self.ques_embed_test = self.ques_embed_net(self.val_ques, self.val_ques_len,  
                                                       self.vocab_size, 
                                                       self.word_embed_size,
                                                       self.max_ques_length, 
@@ -172,15 +182,22 @@ class LSTM_DNN(Model):
                                                       keep_prob = 1)
                 self.ques_embed_W = self.ques_embed_net.ques_embed_W
                 
-                self.img_feat_test = self.patch_generator(self.img[idx],
-                                                          self.ques_embed_test,
-                                                          is_train = False)[0]
+                self.img_feat_test, self.patch_loss_test, \
+                self.diff_loss_test, self.lr_img_test, \
+                self.inp_patches_lst_test, \
+                self.out_patches_lst_test, \
+                self.val_patches = self.patch_generator(self.val_img, 
+                                                                 self.ques_embed_test, 
+                                                                 is_train = False)
                 
                 self.out_logit_test = self.combine_feature(self.img_feat_test,
                                                            self.ques_embed_test, 
                                                            is_train = False, 
                                                            keep_prob = 1)
                 self.out_proba_test = tf.nn.softmax(self.out_logit_test)
+                self.ce_loss_test = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits = 
+                                                                                                  self.out_logit_test, 
+                                                                                                  labels = self.ans[0]))
                 self.val_accuracy = tf.placeholder(dtype = tf.float32, shape = ())
             tf.get_variable_scope().reuse_variables()
             print(tf.get_variable_scope())
@@ -193,7 +210,9 @@ class LSTM_DNN(Model):
                                                       self.batch_size, 
                                                       is_train = True, 
                                                       keep_prob = self.lstm_keep_prob)
-            img_feat, patch_loss = self.patch_generator(self.img[idx], ques_embed, is_train = True)
+            img_feat, patch_loss, diff_loss, \
+            lr_img, inp_patches_lst, \
+            out_patches_lst, patches = self.patch_generator(self.img[idx], ques_embed, is_train = True)
             
             out_logit = self.combine_feature(img_feat,
                                              ques_embed, 
@@ -202,6 +221,11 @@ class LSTM_DNN(Model):
             self.ques_embed.append(ques_embed)
             self.img_feat.append(img_feat)
             self.patch_loss.append(patch_loss)
+            self.diff_loss.append(diff_loss)
+            self.lr_img.append(lr_img)
+            self.inp_patches_lst.append(inp_patches_lst)
+            self.out_patches_lst.append(out_patches_lst)
+            self.patches.append(patches)
             #self.final_img_feat.append(final_img_feat)
             #self.final_ques_feat.append(final_ques_feat)
             self.out_logit.append(out_logit)
@@ -213,9 +237,10 @@ class LSTM_DNN(Model):
             ce_loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits = self.out_logit[idx], 
                                                               labels = self.ans[idx]))
             if self.feat_join == 'ques':
-                loss = ce_loss
+                loss = self.ce_loss_lambda * ce_loss
             else:
-                loss =  ce_loss + (self.patch_loss_lambda * patch_loss)
+                loss =  (self.ce_loss_lambda * ce_loss) + (self.patch_loss_lambda * patch_loss) + \
+                (self.diff_loss_lambda * diff_loss)
             self.ce_loss.append(ce_loss)
             self.loss.append(loss)
        
@@ -276,41 +301,84 @@ class LSTM_DNN(Model):
             self.patch_loss_summ = []
             for idx, loss in enumerate(self.patch_loss):
                 self.patch_loss_summ.append(scalar_summary('device' + str(idx) + '/patch_loss_summ', loss))
+                
+            self.diff_loss_summ = []
+            for idx, loss in enumerate(self.diff_loss):
+                self.diff_loss_summ.append(scalar_summary('device' + str(idx) + '/diff_loss_summ', loss))
+            self.lr_img_summ = []
+            for idx, img in enumerate(self.lr_img):
+                self.lr_img_summ.append(tf.summary.image( 'device_{}/lr_img_summ'.format(idx), img))
+            self.img_summ = []
+            for idx, img in enumerate(self.img):
+                self.img_summ.append(tf.summary.image( 'device_{}/img_summ'.format(idx), img))
+            self.img1_summ = []
+            for idx, img in enumerate(self.img1):
+                self.img1_summ.append(tf.summary.image( 'device_{}/img1_summ'.format(idx), img))
             self.inp_patch_summ = []  
-            for idx, patch_lst in enumerate(self.patch_generator.inp_patches_lst[1:]):
+            for idx, patch_lst in enumerate(self.inp_patches_lst):
                 for idx1, patch in enumerate(patch_lst):
-                    self.patch_loss_summ.append(tf.summary.image( 'device_{}/inp_patch_summ_{}'.format(idx, idx1), patch))
+                    self.inp_patch_summ.append(tf.summary.image( 'device_{}/inp_patch_summ_{}'.format(idx, idx1), patch))
             self.out_patch_summ = []  
-            for idx, patch_lst in enumerate(self.patch_generator.out_patches_lst[1:]):
+            for idx, patch_lst in enumerate(self.out_patches_lst):
                 for idx1, patch in enumerate(patch_lst):
-                    self.patch_loss_summ.append(tf.summary.image( 'device_{}/out_patch_summ_{}'.format(idx, idx1), patch))
-            self.ques_vars_summ = []
+                    self.out_patch_summ.append(tf.summary.image( 'device_{}/out_patch_summ_{}'.format(idx, idx1), patch))
+            self.init_patch_summ = []
+            for idx, img in enumerate(self.patches):
+                self.init_patch_summ.append(tf.summary.image( 'device_{}/init_patch_summ'.format(idx), 
+                                                             tf.squeeze(tf.slice(img, begin = [0, 36, 0, 0, 0], 
+                                                                      size = [-1, 1, -1, -1, -1]), axis = 1)))
+            
+           
             if self.is_vars_summ:
+                self.ques_vars_summ = []
                 for var in self.ques_vars:
                     self.ques_vars_summ.append(histogram_summary(var.name.replace(':','_'), var))
-            self.img_vars_summ = []
-            if self.is_vars_summ:
+                self.img_vars_summ = []
                 for var in self.img_vars:
                     self.img_vars_summ.append(histogram_summary(var.name.replace(':','_'), var))
-            self.mm_vars_summ = []
-            if self.is_vars_summ:
+                self.mm_vars_summ = []
                 for var in self.mm_vars:
                     self.mm_vars_summ.append(histogram_summary(var.name.replace(':','_'), var))
-            self.grads_summ = []
-            #if self.is_grads_summ:
-                #for grad, var in self.avg_grads:
-                    #self.grads_summ.append(histogram_summary(var.name.replace(':','_') + '/gradients', grad))
+                    
+            if self.is_grads_summ:
+                self.ques_grads_summ = []
+                for grad, var in self.avg_ques_grads:
+                    self.ques_grads_summ.append(histogram_summary(var.name.replace(':','_') + '/gradients', grad))
+                self.img_grads_summ = []
+                for grad, var in self.avg_img_grads:
+                    self.img_grads_summ.append(histogram_summary(var.name.replace(':','_') + '/gradients', grad))
+                self.mm_grads_summ = []
+                for grad, var in self.avg_mm_grads:
+                    self.mm_grads_summ.append(histogram_summary(var.name.replace(':','_') + '/gradients', grad))
+           
             self.val_accuracy_summ = scalar_summary('val_accuracy',  self.val_accuracy)
             self.val_inp_patch_summ = []
-            for idx, patch in enumerate(self.patch_generator.inp_patches_lst[0]):
-                self.val_inp_patch_summ.append(tf.summary.image( 'device_{}/val_inp_patch_summ_{}'.format(idx, idx1), patch))
+            for idx, patch in enumerate(self.inp_patches_lst_test):
+                self.val_inp_patch_summ.append(tf.summary.image( 'val_inp_patch_summ'.format(idx), patch))
                 
             self.val_out_patch_summ = []
-            for idx, patch in enumerate(self.patch_generator.out_patches_lst[0]):
-                self.val_out_patch_summ.append(tf.summary.image( 'device_{}/val_out_patch_summ_{}'.format(idx, idx1), patch))
-
+            for idx, patch in enumerate(self.out_patches_lst_test):
+                self.val_out_patch_summ.append(tf.summary.image( 'val_out_patch_summ'.format(idx), patch))
+            self.val_diff_loss_summ = scalar_summary('val_diff_loss_summ', self.diff_loss_test)
+            self.val_patch_loss_summ = scalar_summary('val_patch_loss_summ', self.patch_loss_test)
+            self.val_ce_loss_summ = scalar_summary('val_ce_loss_summ', self.ce_loss_test)
+            self.val_lr_img_summ = tf.summary.image( 'val_lr_img_summ', self.lr_img_test)
+            self.val_img_summ = tf.summary.image( 'val_img_summ', self.val_img)
+            self.val_img1_summ = tf.summary.image( 'val_img1_summ', self.val_img1)
+            self.val_ques_summ = tf.summary.text('val_ques_summ', self.val_ques_str)
+            self.val_init_patch_summ = tf.summary.image('initial_patch_summ', tf.squeeze(tf.slice(self.val_patches, 
+                                                                                       begin = [0, 36, 0, 0, 0], 
+                                                                                       size = [-1, 1, -1, -1, -1]), 
+                                                                                       axis = 1))
+            val_summ_lst = [self.val_accuracy_summ, self.val_patch_loss_summ, 
+                            self.val_diff_loss_summ, self.val_lr_img_summ, 
+                            self.val_ce_loss_summ, self.val_img_summ, self.val_img1_summ, self.val_ques_summ] + \
+                            self.val_inp_patch_summ + self.val_out_patch_summ
+            self.val_summ = tf.summary.merge(val_summ_lst)
             summ_lst = self.ques_vars_summ + self.img_vars_summ + self.mm_vars_summ + \
-            self.loss_summ + self.ce_loss_summ + self.patch_loss_summ + self.inp_patch_summ + self.out_patch_summ
+            self.ques_grads_summ + self.img_grads_summ + self.mm_grads_summ + self.loss_summ + self.ce_loss_summ + \
+            self.patch_loss_summ + self.diff_loss_summ + self.inp_patch_summ + \
+            self.out_patch_summ + self.lr_img_summ + self.img_summ + self.img1_summ + [self.init_patch_summ]
             if self.combine_feature.is_bnorm:       
                 self.pop_mean_summ = []
                 self.pop_var_summ = []
@@ -322,6 +390,7 @@ class LSTM_DNN(Model):
                     self.pop_var_summ.append(histogram_summary(self.pop_var[i].name, self.pop_var[i]))
                 summ_lst += self.pop_mean_summ + self.pop_var_summ
             self.summ = tf.summary.merge(summ_lst)
+            
     def summary_writer(self, graph):
 
         save_path = self.save_path
@@ -341,12 +410,12 @@ class LSTM_DNN(Model):
         devices = self.devices
         # change here to optimize in different ways
         if self.feat_join == 'ques':
-            opt_lst = [self.ques_opt, self.mm_opt]
+            run_lst = [self.ques_opt, self.mm_opt]
         else:
             if self.learn_embed:
-                opt_lst = [self.img_opt, self.ques_opt, self.mm_opt]
+                opt_lst = [self.img_opt, self.ques_opt, self.mm_opt]# self.loss, self.patch_loss, self.diff_loss]
             else:
-                opt_lst = [self.img_opt, self.mm_opt]
+                opt_lst = [self.img_opt, self.mm_opt]#self.loss, self.patch_loss, self.diff_loss]
         #opt = self.opt
         num_devices = len(devices)
         print('num_devices', num_devices)
@@ -389,6 +458,9 @@ class LSTM_DNN(Model):
         curr_epoch = 0
         batch_timings = []
         losses = []
+        ce_losses = []
+        patch_losses = []
+        diff_losses = []
         loss =0.
         try:
             while not coord.should_stop():
@@ -406,16 +478,20 @@ class LSTM_DNN(Model):
                      
                     _summ = sess.run(self.summ, feed_dict = fdict) 
                     losses = []
+                    ce_losses = []
+                    patch_losses = []
+                    diff_losses = []
                     curr_epoch += 1
                     batch_idx = 0
-                    self.save(self.save_path, curr_epoch)
+                    self.save(self.save_path, self.global_step)
                     sess.run(self.increment_op)
                     self.train_writer.add_summary(_summ, sess.run(self.global_step))
                     self.train_writer.flush()
-                    if (curr_epoch % 5) == 0:
-                        val_accuracy_test = self.get_validation_score(curr_epoch, False)
+                    if (curr_epoch % 1) == 0:
+                        val_accuracy_test = self.get_validation_score(curr_epoch)
                         #val_accuracy_train = self.get_validation_score(curr_epoch, True)
-                        val_summ_test = sess.run(self.val_accuracy_summ, feed_dict = {self.val_accuracy:val_accuracy_test})
+                        
+                        val_summ_test = sess.run(self.val_summ, feed_dict = {self.val_accuracy:val_accuracy_test})
                         #val_summ_train = sess.run(self.val_accuracy_summ, feed_dict = {self.val_accuracy:val_accuracy_train})
                         self.val_writer.add_summary(val_summ_test, sess.run(self.global_step))
                         self.val_writer.flush()
@@ -424,22 +500,53 @@ class LSTM_DNN(Model):
                     
                     
                 else:
-                    out = sess.run(opt_lst + [self.loss])
-                    loss = out[-1]
-                    losses.append(loss)    
-                    batch_idx += num_devices
-                    counter += num_devices
+                    if 0:#self.learn_embed:
+                        start = timeit.default_timer()
+                        out = sess.run(opt_lst + [self.loss])
+                        loss = out[-1]
+                        losses.append(loss)    
+                        batch_idx += num_devices
+                        counter += num_devices
                 
-                end = timeit.default_timer()
-                batch_timings.append(end - start)
-                print('{}/{} (epoch {}), loss = {:.5f}, ' 
-                      'time/batch = {:.3f}, '
-                      'mtime/batch = {:.3f}'.format(counter,
-                                                    epoch * num_train_batches,
-                                                    curr_epoch,
-                                                    np.mean(loss),
-                                                    end - start,
-                                                    np.mean(batch_timings)))
+                        end = timeit.default_timer()
+                        batch_timings.append(end - start)
+                        print('{}/{} (epoch {}), loss = {:.5f}, '
+                              'time/batch = {:.3f}, '
+                              'mtime/batch = {:.3f}'.format(counter,
+                                                        epoch * num_train_batches,
+                                                        curr_epoch,
+                                                        np.mean(loss),
+                                                        end - start,
+                                                        np.mean(batch_timings)))
+                    else:
+                        start = timeit.default_timer()
+                        _,_, _, loss, ce_loss, patch_loss, diff_loss = sess.run(opt_lst + [self.loss, 
+                                                                                        self.ce_loss,
+                                                                                        self.patch_loss, 
+                                                                                        self.diff_loss])
+                        losses.append(loss)
+                        ce_losses.append(ce_loss)
+                        patch_losses.append(patch_loss)
+                        diff_losses.append(diff_loss)
+                        batch_idx += num_devices
+                        counter += num_devices
+                
+                        end = timeit.default_timer()
+                        batch_timings.append(end - start)
+                        print('{}/{} (epoch {}), loss = {:.5f}, '
+                              'ce_loss = {:.5f}, '
+                              'patch_loss = {:.5f}, '
+                              'diff_loss = {:.5f}, '
+                              'time/batch = {:.3f}, '
+                              'mtime/batch = {:.3f}'.format(counter,
+                                                            epoch * num_train_batches,
+                                                            curr_epoch,
+                                                            np.mean(loss),
+                                                            np.mean(ce_loss), 
+                                                            np.mean(patch_loss),
+                                                            np.mean(diff_loss),
+                                                            end - start,
+                                                            np.mean(batch_timings)))
                 
                 if curr_epoch >= self.epoch:
                     # done training
@@ -458,7 +565,7 @@ class LSTM_DNN(Model):
         
         
         
-    def get_validation_score(self, curr_epoch, is_train = False):
+    def get_validation_score(self, curr_epoch):
         
         print('{} Evaluating model on validation data {}'.format(temp, temp))
         
@@ -475,7 +582,7 @@ class LSTM_DNN(Model):
         other_total = 0.1
         f1 = open('data/predicted_answers.txt', 'w')
         for i in range(self.num_val_batches):
-            
+            '''
             val_img, val_ques, val_ques_len, val_answers, val_ques_str = \
             self.sess.run([self.val_img, self.val_ques, self.val_ques_len, 
                       self.val_answers, self.val_ques_str])
@@ -484,10 +591,11 @@ class LSTM_DNN(Model):
             fdict[self.img[0]] = val_img
             fdict[self.ques[0]] = val_ques
             fdict[self.ques_len[0]] = val_ques_len
-            if is_train:
-                y_proba = self.sess.run(self.out_proba_train, feed_dict = fdict)
-            else:
-                y_proba = self.sess.run(self.out_proba_test, feed_dict = fdict)
+            '''
+            
+            y_proba,  val_answers, val_ques_str = self.sess.run([self.out_proba_test, 
+                                                                 self.val_answers, 
+                                                                 self.val_ques_str])
             y_predict = y_proba.argmax(axis = -1)
             y_predict_text = self.labelencoder.inverse_transform(y_predict)
             print('{}/{} (epoch = {})'.format(i+1, self.num_val_batches, curr_epoch))
