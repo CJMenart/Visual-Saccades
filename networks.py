@@ -218,8 +218,9 @@ class PatchGenerator:
                     temp_patch_loss = tf.reduce_mean(tf.reduce_min(mean_diff, axis = 1))
                     temp_diff_loss = 0
                     for j in range(len(inp_patches_lst)):
-                        temp_diff_loss += tf.abs(tf.subtract(inp_patches_lst[i], output_patch))
-                    #temp_diff_loss = tf.clip_by_value(-1.*temp_diff_loss, clip_value_min = -5., clip_value_max = 0.)
+                        temp_diff_loss += tf.reduce_mean(tf.abs(tf.subtract(inp_patches_lst[i], output_patch)))
+                    temp_diff_loss = temp_diff_loss / len(inp_patches_lst)
+                    
                     
                     if i == 0:
                         patch_loss = temp_patch_loss

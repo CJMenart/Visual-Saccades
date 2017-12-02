@@ -48,7 +48,7 @@ class LSTM_DNN(Model):
                                               trainable = False, 
                                               name = 'lstm_keep_prob')
         self.ce_loss_lambda = 1.
-        self.patch_loss_lambda = 1.0
+        self.patch_loss_lambda = 100.0
         self.diff_loss_lambda = 1.
         self.is_vars_summ = True
         self.is_grads_summ = True
@@ -433,7 +433,7 @@ class LSTM_DNN(Model):
         for record in tf.python_io.tf_record_iterator(self.train_data_path):
             num_train_examples += 1
         '''
-        num_train_examples = 364085
+        num_train_examples = 30#364085
         num_train_batches = num_train_examples / self.batch_size
         print('Number of Train examples: ', num_train_examples)
         print('Batches per train epoch: ', num_train_batches)
@@ -442,7 +442,7 @@ class LSTM_DNN(Model):
         for record in tf.python_io.tf_record_iterator(self.val_data_path):
             num_val_examples += 1
         '''
-        num_val_examples = 214354
+        num_val_examples = 20#214354
 
         num_val_batches = num_val_examples / self.batch_size
         print('Number of val examples: ', num_val_examples)
