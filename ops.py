@@ -42,6 +42,7 @@ def average_gradients(tower_grads):
                 # Add 0 dim to gradients to represent tower
                 
                 if g is None:
+                    print('Gradient for {} is None'.format(_.name))
                     g = tf.zeros_like(_)
                 
                 expanded_g = tf.expand_dims(g, 0)
@@ -124,10 +125,10 @@ def write_tfrecords(out_file, var_list, name_list):
     
 def write_tfrecords_val(out_file, var_list, name_list):
     dict1 = {}
-    for i in range(3):
+    for i in range(2):
         dict1[name_list[i]] = _bytes_feature(var_list[i].tostring())
+    dict1[name_list[2]] = _bytes_feature(var_list[2])
     dict1[name_list[3]] = _bytes_feature(var_list[3])
-    dict1[name_list[4]] = _bytes_feature(var_list[4])
     example = tf.train.Example(features = tf.train.Features(feature = dict1))
     out_file.write(example.SerializeToString())
 
@@ -156,20 +157,22 @@ def read_val_data(filepath, name_list, shape_list, dtype_list):
             dict1[name_list[i]] = tf.FixedLenFeature([], tf.string)
         features = tf.parse_single_example(serialized_example, features = dict1)
         outputs = []
-        for i in range(3):
+        #print('name_list => {}'.format(len(name_list)))
+        for i in range(len(name_list) - 2):
             temp = tf.decode_raw(features[name_list[i]], dtype_list[i])
             temp = tf.reshape(temp, shape_list[i])
             outputs.append(temp)
-        temp = features[name_list[3]]
+        temp = features[name_list[len(name_list) - 2]]
         outputs.append(temp)
-        temp = features[name_list[4]]
+        temp = features[name_list[len(name_list) - 1]]
         outputs.append(temp)
         return outputs 
 def batch_data(data, batch_size):
     with tf.name_scope('batch_and_shuffle_data'):
         output = tf.train.shuffle_batch(data, batch_size = batch_size, 
-                                        num_threads = 8,
-                                        capacity=1000 + 3 * batch_size,
+                                        num_threads = 4,
+                                        capacity = 1000 + 3 * batch_size,
                                         min_after_dequeue = 1000,
+                                        enqueue_many = False, 
                                         name='in_and_out')
         return output

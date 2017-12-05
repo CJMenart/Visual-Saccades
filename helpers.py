@@ -9,6 +9,7 @@ from itertools import izip_longest
 from collections import defaultdict
 import operator
 import re
+import timeit
 def selectFrequentAnswers(questions_train, questions_lengths_train, answers_train, 
                           images_train, images_train_path,  
                           answers_train_all, max_answers):
@@ -69,6 +70,7 @@ def get_tokens(sent_list):
     for sent in sent_list:
         ans.append(tokenize(sent.lower()))
     return ans
+
 def final_tokens(tokens_list, counts, count_thr):
     ans = []
     for tokens in tokens_list:
@@ -102,3 +104,131 @@ def get_vocab_size(filename):
     with open(filename, 'r') as f:
         vocab_list = f.read().decode('utf8').splitlines()
     return len(vocab_list)
+
+def loadGloveModel(gloveFile = 'data/glove.6B.300d.txt'):
+    print("Loading Glove Model")
+    f = open(gloveFile,'r')
+    model = {}
+    for line in f:
+        splitLine = line.split()
+        word = splitLine[0]
+        embedding = np.array([float(val) for val in splitLine[1:]])
+        model[word] = embedding
+    print("Done.",len(model)," words loaded!")
+    return model
+
+def getQuesVecFromModel(ques_tokens_lst, model, ques_embed_dim = 300):
+    ques_vec_lst = []
+    for token_lst in ques_tokens_lst:
+        ques_vec = np.zeros((ques_embed_dim, ))
+        cnt = 0.
+        for token in token_lst:
+            if model.has_key(token):
+                ques_vec += model[token]
+                cnt += 1
+            else:
+                continue
+        ques_vec = ques_vec / cnt
+        ques_vec_lst.append(ques_vec)
+    return ques_vec_lst
+
+def get_validation_score(self, curr_epoch):
+    temp = '*'*20
+    print('{} Evaluating model on validation data {}'.format(temp, temp))
+    if not os.path.exists(self.results_path):
+        os.makedirs(self.results_path)
+
+    start = timeit.default_timer()
+    correct_val = 0.0
+    total = 0.001
+
+    other_count = 0
+    binary_correct_val = 0.0
+    binary_total = 0.001
+    num_correct_val = 0.0
+    num_total = 0.001
+    other_correct_val = 0.0
+    other_total = 0.001
+    f1 = open('{}/predicted_answers_{}.txt'.format(self.results_path, self.name), 'w')
+    for i in range(self.num_val_batches):
+
+        y_proba,  val_answers, val_ques_str = self.sess.run([self.out_proba_test, 
+                                                             self.val_answers, 
+                                                             self.val_ques_str])
+        y_predict = y_proba.argmax(axis = -1)
+        y_predict_text = self.labelencoder.inverse_transform(y_predict)
+        print('{}/{} (epoch = {})'.format(i+1, self.num_val_batches, curr_epoch))
+
+
+
+
+
+        for prediction, truth, ques_str, in zip(y_predict_text, val_answers, val_ques_str):
+
+            temp_count=0
+            for _truth in truth.split('|'):
+                if prediction == _truth:
+                    temp_count+=1
+            if temp_count>2:
+                correct_val+=1
+            else:
+                correct_val+=float(temp_count)/3
+
+            total += 1
+
+
+            if prediction == 'yes' or prediction == 'no':
+                binary_temp_count = 0
+                for _truth in truth.split('|'):
+                    if prediction == _truth:
+                        binary_temp_count+=1
+                if binary_temp_count>2:
+                    binary_correct_val+=1
+                else:
+                    binary_correct_val+= float(binary_temp_count)/3
+                binary_total+=1
+            elif np.core.defchararray.isdigit(prediction):
+                num_temp_count = 0
+                for _truth in truth.split('|'):
+                    if prediction == _truth:
+                        num_temp_count+=1
+                if num_temp_count>2:
+                    num_correct_val+=1
+                else:
+                    num_correct_val+= float(num_temp_count)/3
+                num_total+=1
+            else:
+                other_count = 0
+                for _truth in truth.split('|'):
+                    if prediction == _truth:
+                        other_count += 1
+                if other_count > 2:
+                    other_correct_val += 1
+                else:
+                    other_correct_val += float(other_count) / 3
+                other_total += 1
+
+            f1.write('Question ==> {} \n'.format(ques_str).encode('utf-8'))
+            f1.write('Prediction ==> {} \n'.format(prediction).encode('utf-8'))
+            f1.write('Answer ==> {} \n'.format(truth))
+            f1.write(('*'*100 + '\n').encode('utf8'))
+    f1.close()
+    f2 = open('{}/overall_results_{}.txt'.format(self.results_path, self.name), 'a')
+    f2.write('Total Alccuracy: {:.4f} \n\n'.format(correct_val/float(total)))
+
+    f2.write('Accuracy on Yes No questions: {:.4f} \n\n'.format(binary_correct_val / float(binary_total)))
+
+    f2.write('Accuracy on Number type question: {:.4f} \n\n'.format(num_correct_val / float(num_total)))
+
+    f2.write('Accuracy on Other type question: {:.4f} \n\n'.format(other_correct_val / float(other_total)))
+    f2.write(('*'*100 + '\n').encode('utf8'))
+
+    f2.close()
+    accy = correct_val/float(total)
+    print('')
+    print('Final Accuracy is {:.4f}'.format(accy))
+    print('')
+    end = timeit.default_timer()
+    print('{} Done evaluating model on validation data. Time = {:.2f} s. {}'.format(temp, end - start, temp))
+    print('')
+    return accy

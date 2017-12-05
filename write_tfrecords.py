@@ -9,7 +9,8 @@ from skimage.transform import resize
 import re
 import timeit
 from ops import *
-from helpers import tokenize, selectFrequentAnswers, get_tokens, final_tokens, encode_questions
+from helpers import (tokenize, selectFrequentAnswers, get_tokens, final_tokens,  
+                     encode_questions, loadGloveModel, getQuesVecFromModel)
 import sys
 
 temp = '*'*10    
@@ -71,6 +72,7 @@ print(temp)
 print(temp)
 ques_tokens_train = get_tokens(questions_train)
 ques_tokens_val = get_tokens(questions_val)
+'''
 counts = {}
 count_thr = 5
 for i, tokens in enumerate(ques_tokens_train):#change to train
@@ -113,7 +115,10 @@ ques_array_val = encode_questions(ques_tokens_val_final, wtoi, 25)
 print('Encoded train questions array shape ==> {}'.format(ques_array_train.shape))
 print('Encoded validation questions array shape ==> {}'.format(ques_array_val.shape))
 print(temp)
-
+'''
+model = loadGloveModel()
+ques_vec_train = getQuesVecFromModel(ques_tokens_train, model)
+ques_vec_val = getQuesVecFromModel(ques_tokens_val, model)
 print('{} Creating labels for training answers {}'.format('*'*10, '*'*10))
 print('Number of training answers ==> {}'.format(len(answers_train)))
 print('A sample training answer ==> {}'.format(answers_train[5]))
@@ -143,14 +148,17 @@ for i in range(N):
         img = np.stack([img, img, img], axis = 2)
     img = resize(img, img_shape[:2], order = 3)
     img = img.astype(np.float32)
-    ques = ques_array_val[i]
-    ques = ques.astype(np.int32)
-    ques_len = questions_lengths_val[i]
-    ques_len = np.array(int(ques_len)).astype(np.int32)
+    ques = ques_vec_val[i].astype(np.float32)
+    #ques = ques_array_val[i]
+    #ques = ques.astype(np.int32)
+    #ques_len = questions_lengths_val[i]
+    #ques_len = np.array(int(ques_len)).astype(np.int32)
     ans_all = answers_val_all[i].encode('utf8')
     ques_str = questions_val[i].encode('utf8')
-    write_tfrecords_val(out_file, [img, ques, ques_len, ans_all, ques_str], 
-                        ['img', 'ques', 'ques_len', 'ans_all', 'ques_str'])
+    #write_tfrecords_val(out_file, [img, ques, ques_len, ans_all, ques_str], 
+                        #['img', 'ques', 'ques_len', 'ans_all', 'ques_str'])
+    write_tfrecords_val(out_file, [img, ques, ans_all, ques_str], 
+                        ['img', 'ques', 'ans_all', 'ques_str'])
     print('{}/{} written.'.format(i+1, N), end = '\r')
     sys.stdout.flush()
 out_file.close()  
@@ -179,13 +187,15 @@ for i in range(N):
     sum_stats += img
     sum_2_stats += img*img
     count += 1
-    ques = ques_array_train[i]
-    ques = ques.astype(np.int32)
-    ques_len = questions_lengths_train[i]
-    ques_len = np.array(int(ques_len)).astype(np.int32)
+    ques = ques_vec_train[i].astype(np.float32)
+    #ques = ques_array_train[i]
+    #ques = ques.astype(np.int32)
+    #ques_len = questions_lengths_train[i]
+    #ques_len = np.array(int(ques_len)).astype(np.int32)
     ans = ans_array_train[i]
     ans = np.array(ans).astype(np.int32)
-    write_tfrecords(out_file, [img, ques, ques_len, ans], ['img', 'ques', 'ques_len', 'ans'])
+    #write_tfrecords(out_file, [img, ques, ques_len, ans], ['img', 'ques', 'ques_len', 'ans'])
+    write_tfrecords(out_file, [img, ques, ans], ['img', 'ques', 'ans'])
     print('{}/{} written.'.format(i+1, N), end = '\r')
     sys.stdout.flush()
 img_mean = sum_stats / float(count)
