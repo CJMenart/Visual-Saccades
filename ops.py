@@ -87,17 +87,18 @@ def histogram_summary(name, x):
 def leakyrelu(x, alpha=0.3, name='lrelu'):
     with tf.name_scope(name):
         return tf.maximum(x, alpha * x, name=name)
-def downconv(x, output_dim, k=[5, 5], pool=[2, 2], name='downconv'):
+def downconv(x, output_dim, k=[5, 5], pool=[2, 2], name='downconv', is_bias = False):
     """ Downsampled convolution 2d """
     w_init = xavier_initializer()
     with tf.variable_scope(name):
         W = tf.get_variable('W', k + [x.get_shape()[-1], output_dim], initializer=w_init)
         conv = tf.nn.conv2d(x, W, strides=[1] + pool + [1], padding='SAME')
-        b = tf.get_variable('b', [output_dim], initializer=tf.zeros_initializer())
-        conv = tf.nn.bias_add(conv, b)
+        if is_bias:
+            b = tf.get_variable('b', [output_dim], initializer=tf.zeros_initializer())
+            conv = tf.nn.bias_add(conv, b)
         return conv
     
-def deconv(x, output_dim, output_shape, k=[5, 5], pool=[2, 2], name='downconv'):
+def deconv(x, output_dim, output_shape, k=[5, 5], pool=[2, 2], name='downconv', is_bias = False):
     """ Deconvolution 2d """
     w_init = xavier_initializer()
     with tf.variable_scope(name):
@@ -105,9 +106,10 @@ def deconv(x, output_dim, output_shape, k=[5, 5], pool=[2, 2], name='downconv'):
         conv = tf.nn.conv2d_transpose(x, W, strides=[1] + pool + [1], 
                                       output_shape = output_shape, 
                                       padding='SAME')
-        b = tf.get_variable('b', [output_dim], 
-                            initializer=tf.zeros_initializer())
-        conv = tf.nn.bias_add(conv, b)
+        if is_bias:
+            b = tf.get_variable('b', [output_dim], 
+                                initializer=tf.zeros_initializer())
+            conv = tf.nn.bias_add(conv, b)
         return conv
     
 def _int64_feature(value):

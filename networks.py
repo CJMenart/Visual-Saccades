@@ -134,10 +134,12 @@ class PatchGenerator:
             self.LSTMs_drop = []
             for i in range(self.num_lstm_layers):
                 self.LSTMs_drop.append(tf.nn.rnn_cell.DropoutWrapper(self.LSTMs[i], 
-                                                                     output_keep_prob = 0.8,  
+                                                                     output_keep_prob = 0.5,
+								     state_keep_prob = 0.5,
+							             variational_recurrent = True,  
                                                                      dtype = tf.float32))
             self.stacked_LSTM = tf.nn.rnn_cell.MultiRNNCell(self.LSTMs_drop)
-            keep_prob = 1.
+            keep_prob = 0.8
         else:
             self.stacked_LSTM = tf.nn.rnn_cell.MultiRNNCell(self.LSTMs)
             keep_prob = 1.
@@ -182,7 +184,7 @@ class PatchGenerator:
                         conv_net_input = tf.concat([selection, output_patch, lr_img, ques_ch], axis = -1)
                     else:
                         conv_net_input = tf.concat([selection, output_patch, lr_img], axis = -1)
-                    #conv_net_input = tf.nn.dropout(conv_net_input, keep_prob = keep_prob)
+                    conv_net_input = tf.nn.dropout(conv_net_input, keep_prob = keep_prob)
                     if not i:
                         print('conv_net_input => {}'.format(conv_net_input.get_shape().as_list()))
                     if i ==1:
@@ -203,6 +205,7 @@ class PatchGenerator:
                     
                     output_ch = tf.reshape(output, [self.batch_size, 2, 2, 512])
                     deconv_net_input = tf.concat([output_ch, lr_img_ch], axis = -1)
+                    deconv_net_input = tf.nn.dropout(deconv_net_input, keep_prob = keep_prob)
                     output_patch = self.deconv_net(deconv_net_input, i, is_training = is_train, keep_prob = keep_prob)
                     
                     out_patches_lst.append(output_patch)
@@ -297,10 +300,10 @@ class PatchGenerator:
                 print('Third Layer: Input => ' + str(out2.get_shape().as_list()) + ', Output => '\
                       + str(out3.get_shape().as_list()))
                 
-            out4 = deconv(out3, 3, [self.batch_size, 32, 32, 3], [5, 5], name = 'deconv4')
-            if self.is_bnorm:
-                out4 = self.batch_norm(out4, is_train=is_training, name = 'bnorm4')
-            out4 = tf.tanh(out4)
+            out4 = deconv(out3, 3, [self.batch_size, 32, 32, 3], [5, 5], name = 'deconv4', is_bias = True)
+            #if self.is_bnorm:
+            #    out4 = self.batch_norm(out4, is_train=is_training, name = 'bnorm4')
+            #out4 = tf.tanh(out4)
             #out4 = tf.nn.dropout(out4, keep_prob = keep_prob)
             if i==0:
                 print('Fourth Layer: Input => ' + str(out3.get_shape().as_list()) + ', Output => '\
@@ -343,7 +346,7 @@ class PatchGenerator:
             if self.is_bnorm:
                 out4 = self.batch_norm(out4, is_train = is_training, name ='bnorm4')
             out4 = leakyrelu(out4)
-            #out4 = tf.nn.dropout(out4, keep_prob = keep_prob)
+            out4 = tf.nn.dropout(out4, keep_prob = keep_prob)
             if i==1:
                 print('Fourth Layer: Input => ' + str(out3.get_shape().as_list()) + ', Output => '\
                       + str(out4.get_shape().as_list()))
